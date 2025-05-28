@@ -9,11 +9,15 @@ use ratatui::{
     crossterm::event::{read, Event, KeyCode},
     init,
     layout::Flex,
-    prelude::{Alignment, Buffer, Color, Constraint, Layout, Line, Rect, Style, Widget},
+    prelude::{
+        Alignment, Buffer, Color, Constraint, Layout, Line, Modifier, Rect, Style, Stylize, Widget,
+    },
     restore,
-    widgets::{Block, BorderType, Clear},
+    symbols::{block::FULL, DOT},
+    widgets::{Block, BorderType, Borders, Clear},
     DefaultTerminal,
 };
+use regex::Regex;
 use serde::Deserialize;
 
 fn main() -> Result<()> {
@@ -38,6 +42,7 @@ struct Cli {
     model: Option<String>,
 }
 
+#[derive(PartialEq)]
 enum Screen {
     MainMenu(MainMenuItem),
     OptionsMenu(OptionsMenuItem),
@@ -45,33 +50,39 @@ enum Screen {
     ModelMenu,
 }
 
+#[derive(PartialEq)]
 enum MainMenuItem {
     Play,
     Options,
     Exit,
 }
 
+#[derive(PartialEq)]
 enum OptionsMenuItem {
     Model,
     Return,
 }
 
+#[derive(PartialEq)]
 enum GameScreen {
     Game(GameItem),
     PauseMenu(PauseMenuItem),
     EndMenu(EndMenuItem),
 }
 
+#[derive(PartialEq)]
 enum GameItem {
     Range,
     Input,
 }
 
+#[derive(PartialEq)]
 enum PauseMenuItem {
     Model,
     Exit,
 }
 
+#[derive(PartialEq)]
 enum EndMenuItem {
     Repeat,
     Exit,
@@ -96,9 +107,13 @@ struct App<'a> {
     model: String,
     models: Vec<String>,
     models_view: Vec<Line<'a>>,
+    selectors_view: Vec<Line<'a>>,
     model_view_selected: String,
     model_view_offset: u16,
     api_key: String,
+    ranged_re: Regex,
+    input_re: Regex,
+    extra_line_help: bool,
 }
 
 impl Default for App<'_> {
@@ -114,9 +129,13 @@ impl Default for App<'_> {
             model: cli.model.unwrap_or("qwen/qwen3-32b:free".to_owned()),
             models: Vec::new(),
             models_view: Vec::new(),
+            selectors_view: Vec::new(),
             model_view_selected: String::new(),
             model_view_offset: 0,
             api_key: String::new(),
+            ranged_re: Regex::new(r"\A\d+\.\.\d+\z").unwrap(),
+            input_re: Regex::new(r"\A\d+\z").unwrap(),
+            extra_line_help: false,
         }
     }
 }
@@ -133,7 +152,11 @@ impl Widget for &mut App<'_> {
             Screen::OptionsMenu(s) => {
                 self.options_menu(area, buf, s);
             }
-            Screen::InGame(_) => {}
+            Screen::InGame(s) => match s {
+                GameScreen::Game(s) => self.take_input(area, buf, s),
+                GameScreen::PauseMenu(s) => todo!(),
+                GameScreen::EndMenu(s) => todo!(),
+            },
             Screen::ModelMenu => self.model_menu(area, buf),
         };
     }
@@ -153,6 +176,36 @@ impl App<'_> {
         }
     }
 
+    fn validate_input(&self) -> bool {
+        if self.ranged_re.is_match(&self.range_input) && self.input_re.is_match(&self.input) {
+            // process the ranged input
+            let (start, end) = self
+                .range_input
+                .split_at(self.range_input.find("..").unwrap());
+            let end: String = end.chars().rev().collect();
+            let (end, _) = end.split_at(end.find("..").unwrap());
+            let start: usize = start.parse().unwrap();
+            let end: usize = end.parse().unwrap();
+            let mut flag1 = false;
+
+            if start < end {
+                flag1 = true;
+            }
+
+            // process the guess input
+            let guess: usize = self.input.parse().unwrap();
+            let mut flag2 = false;
+
+            if guess >= start && guess <= end {
+                flag2 = true;
+            }
+
+            flag1 && flag2
+        } else {
+            false
+        }
+    }
+
     fn run(&mut self, mut term: DefaultTerminal) -> Result<()> {
         while !self.exit {
             term.draw(|f| f.render_widget(&mut *self, f.area()))?;
@@ -164,6 +217,56 @@ impl App<'_> {
     fn handle_events(&mut self) -> Result<()> {
         if let Event::Key(k) = read()? {
             match k.code {
+                KeyCode::Char(c)
+                    if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range)) =>
+                {
+                    self.range_input.push(c);
+                }
+                KeyCode::Char(c)
+                    if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input)) =>
+                {
+                    self.input.push(c);
+                }
+                KeyCode::Tab
+                    if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range)) =>
+                {
+                    self.screen = Screen::InGame(GameScreen::Game(GameItem::Input));
+                }
+                KeyCode::Tab
+                    if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input)) =>
+                {
+                    self.screen = Screen::InGame(GameScreen::Game(GameItem::Range));
+                }
+                KeyCode::Backspace
+                    if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range)) =>
+                {
+                    self.range_input.pop();
+                }
+                KeyCode::Backspace
+                    if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input)) =>
+                {
+                    self.input.pop();
+                }
+                KeyCode::Enter
+                    if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range)) =>
+                {
+                    // TODO process the request
+                    if self.validate_input() {
+                        self.exit = true;
+                    } else {
+                        self.extra_line_help = true;
+                    }
+                }
+                KeyCode::Enter
+                    if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input)) =>
+                {
+                    // TODO process the request
+                    if self.validate_input() {
+                        self.exit = true;
+                    } else {
+                        self.extra_line_help = true;
+                    }
+                }
                 KeyCode::Char('q') => self.exit = true,
                 KeyCode::Char('j') => match &self.screen {
                     Screen::MainMenu(MainMenuItem::Play) => {
@@ -241,8 +344,16 @@ impl App<'_> {
                     Screen::OptionsMenu(OptionsMenuItem::Return) => {
                         self.screen = Screen::MainMenu(MainMenuItem::Play);
                     }
+                    Screen::ModelMenu => {
+                        self.model = self.model_view_selected.clone();
+                    }
                     _ => {}
                 },
+                KeyCode::Char('h') => {
+                    if let Screen::ModelMenu = &self.screen {
+                        self.screen = Screen::OptionsMenu(OptionsMenuItem::Model);
+                    }
+                }
                 _ => {}
             }
         }
@@ -371,7 +482,8 @@ impl App<'_> {
 
         let model_list_block = Block::bordered()
             .title_top("Model list")
-            .title_bottom(Line::raw("(j) down / (k) up").alignment(Alignment::Center))
+            .title_bottom(Line::raw("(j) down / (k) up / (l) select / (h) return"))
+            .title_alignment(Alignment::Center)
             .style(Style::default().fg(Color::Green))
             .border_type(BorderType::Rounded);
         let list_space = model_list_block.inner(space);
@@ -394,22 +506,112 @@ impl App<'_> {
         let active_content_style = content_style.bg(Color::Green);
 
         self.models_view.clear();
+        self.selectors_view.clear();
         for model in self.models.iter().skip(self.model_view_offset as usize) {
             if *model == self.model_view_selected {
+                if *model == self.model {
+                    self.selectors_view
+                        .push(Line::styled(DOT, active_content_style).alignment(Alignment::Center));
+                } else {
+                    self.selectors_view
+                        .push(Line::styled(" ", active_content_style));
+                }
                 self.models_view
                     .push(Line::styled(model.to_owned(), active_content_style));
             } else {
+                if *model == self.model {
+                    self.selectors_view
+                        .push(Line::styled(DOT, content_style).alignment(Alignment::Center));
+                } else {
+                    self.selectors_view.push(Line::styled(" ", content_style));
+                }
                 self.models_view
                     .push(Line::styled(model.to_owned(), content_style));
             }
         }
-        self.models_view.truncate(list_space.height as usize);
+        self.models_view.truncate(model_space.height as usize);
+        self.selectors_view.truncate(selector_space.height as usize);
 
-        let list_space_layout =
-            Layout::vertical(vec![Constraint::Max(1); list_space.height as usize])
-                .split(list_space);
         for (idx, model) in self.models_view.iter().enumerate() {
-            model.render(list_space_layout[idx], buf);
+            model.render(model_space_layout[idx], buf);
         }
+        for (idx, selector) in self.selectors_view.iter().enumerate() {
+            selector.render(selector_space_layout[idx], buf);
+        }
+    }
+
+    fn take_input(&self, area: Rect, buf: &mut Buffer, screen: &GameItem) {
+        self.clear(area, buf);
+
+        let space = Layout::vertical([
+            Constraint::Percentage(40),
+            Constraint::Percentage(100),
+            Constraint::Percentage(40),
+        ])
+        .split(area)[1];
+        let space = Layout::horizontal([
+            Constraint::Percentage(40),
+            Constraint::Percentage(100),
+            Constraint::Percentage(40),
+        ])
+        .split(space)[1];
+
+        let layout = if self.extra_line_help {
+            Layout::vertical([Constraint::Max(3), Constraint::Max(3), Constraint::Max(1)])
+                .flex(Flex::Center)
+                .split(space)
+        } else {
+            Layout::vertical([Constraint::Max(3), Constraint::Max(3)])
+                .flex(Flex::Center)
+                .split(space)
+        };
+
+        let ranged_input_block = Block::bordered()
+            .title_top("Input a range in the format n..m where n < m")
+            .title_alignment(Alignment::Center)
+            .style(Style::default().fg(Color::Green))
+            .border_type(BorderType::Rounded);
+        let guess_input_block = Block::bordered()
+            .title_top("Input a number in the above range")
+            .title_bottom("(tab) switch between panels / (ret) continue")
+            .title_alignment(Alignment::Center)
+            .style(Style::default().fg(Color::Green))
+            .border_type(BorderType::Rounded);
+        if self.extra_line_help {
+            let help_line = Block::new()
+                .title_top("Incorrect input")
+                .style(
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .title_alignment(Alignment::Center)
+                .borders(Borders::TOP);
+
+            help_line.render(layout[2], buf);
+        }
+
+        let ranged_input_space = ranged_input_block.inner(layout[0]);
+        let guess_input_space = guess_input_block.inner(layout[1]);
+
+        ranged_input_block.render(layout[0], buf);
+        guess_input_block.render(layout[1], buf);
+
+        let mut ranged_input =
+            Line::styled(self.range_input.clone(), Style::default().fg(Color::White))
+                .alignment(Alignment::Center);
+        let mut input = Line::styled(self.input.clone(), Style::default().fg(Color::White))
+            .alignment(Alignment::Center);
+        match screen {
+            GameItem::Range => {
+                ranged_input.push_span(FULL);
+            }
+            GameItem::Input => {
+                input.push_span(FULL);
+            }
+        }
+
+        ranged_input.render(ranged_input_space, buf);
+        input.render(guess_input_space, buf);
     }
 }
