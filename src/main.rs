@@ -1,12 +1,9 @@
-#![expect(unused, reason = "Temporary allow during development.")]
-
 use std::sync::LazyLock;
 
 use clap::Parser;
 use color_eyre::{
-    eyre::{bail, Result},
+    eyre::{eyre, Result},
     install,
-    owo_colors::OwoColorize,
 };
 use fastrand::Rng;
 use ratatui::{
@@ -14,8 +11,7 @@ use ratatui::{
     init,
     layout::Flex,
     prelude::{
-        Alignment, Buffer, Color, Constraint, Layout, Line, Modifier, Rect, Style, Stylize, Text,
-        Widget,
+        Alignment, Buffer, Color, Constraint, Layout, Line, Modifier, Rect, Style, Text, Widget,
     },
     restore,
     symbols::{block::FULL, DOT},
@@ -24,16 +20,36 @@ use ratatui::{
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use ureq::agent;
+use ureq::{agent, Error};
 
 fn main() -> Result<()> {
     install()?;
-    let cli = Cli::parse();
+    let _ = Cli::parse();
 
     let terminal = init();
-    let app_result = App::default().run(terminal);
+    let result = App::default().run(terminal);
     restore();
-    app_result
+
+    match result.err() {
+        None => Ok(()),
+        Some(err) => match err.downcast::<Error>() {
+            Ok(err) => match err {
+                Error::StatusCode(s) => match s {
+                    400 => Err(eyre!("bad request")),
+                    401 => Err(eyre!("invalid credentials")),
+                    402 => Err(eyre!("insufficient credits")),
+                    403 => Err(eyre!("flagged input")),
+                    408 => Err(eyre!("timed out")),
+                    429 => Err(eyre!("rate limited")),
+                    502 => Err(eyre!("invalid response or model down")),
+                    503 => Err(eyre!("no available providers")),
+                    _ => Ok(()),
+                },
+                _ => Ok(()),
+            },
+            Err(_) => Ok(()),
+        },
+    }
 }
 
 #[derive(Parser)]
@@ -52,6 +68,10 @@ struct Cli {
         requires = "api_key"
     )]
     model: Option<String>,
+    /// The OpenRouter API key to use for the AI request.
+    ///
+    /// This should be set through the command-line or the environment variable. It is required to
+    /// successfully perform the chat completion request to the OpenRouter API.
     #[arg(
         long,
         env = "OPENROUTER_API_KEY",
@@ -85,7 +105,6 @@ enum OptionsMenuItem {
 #[derive(PartialEq)]
 enum GameScreen {
     Game(GameItem),
-    PauseMenu(PauseMenuItem),
     EndMenu(EndMenuItem),
 }
 
@@ -93,12 +112,6 @@ enum GameScreen {
 enum GameItem {
     Range,
     Input,
-}
-
-#[derive(PartialEq)]
-enum PauseMenuItem {
-    Model,
-    Exit,
 }
 
 #[derive(PartialEq)]
@@ -252,11 +265,9 @@ impl Widget for &mut App<'_> {
             }
             Screen::InGame(s) => match s {
                 GameScreen::Game(s) => self.take_input(area, buf, s),
-                GameScreen::PauseMenu(s) => todo!(),
                 GameScreen::EndMenu(s) => self.end_menu(area, buf, s),
             },
             Screen::ModelMenu => self.model_menu(area, buf),
-            _ => {}
         };
     }
 }
@@ -325,7 +336,7 @@ impl App<'_> {
         }
     }
 
-    fn process_request(&mut self) {
+    fn process_request(&mut self) -> Result<()> {
         let request_body = Request::new(self.model.clone(), self.result.unwrap());
         let agent = agent();
 
@@ -344,10 +355,10 @@ impl App<'_> {
                         continue;
                     } else {
                         self.chat_completion_output = output;
-                        break;
+                        break Ok(());
                     }
                 }
-                Err(_) => continue,
+                Err(err) => break Err(err.into()),
             }
         }
     }
@@ -361,13 +372,6 @@ impl App<'_> {
     }
 
     fn handle_events(&mut self) -> Result<()> {
-        if self.processing_request {
-            self.process_random();
-            self.process_request();
-            self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat));
-            self.processing_request = false;
-        }
-
         if let Event::Key(k) = read()? {
             match k.code {
                 KeyCode::Char(c)
@@ -504,8 +508,7 @@ impl App<'_> {
                         self.model = self.model_view_selected.clone();
                     }
                     Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat)) => {
-                        // TODO repeat the game
-                        self.exit = true;
+                        self.screen = Screen::InGame(GameScreen::Game(GameItem::Range));
                     }
                     Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit)) => {
                         self.exit = true;
@@ -519,6 +522,13 @@ impl App<'_> {
                 }
                 _ => {}
             }
+        }
+
+        if self.processing_request {
+            self.process_random();
+            self.process_request()?;
+            self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat));
+            self.processing_request = false;
         }
         Ok(())
     }
@@ -719,7 +729,7 @@ impl App<'_> {
         ])
         .split(space)[1];
 
-        let layout = if self.extra_line_help {
+        let layout = if self.extra_line_help || self.processing_request {
             Layout::vertical([Constraint::Max(3), Constraint::Max(3), Constraint::Max(1)])
                 .flex(Flex::Center)
                 .split(space)
@@ -750,7 +760,7 @@ impl App<'_> {
             help_line.render(layout[2], buf);
         } else if self.processing_request {
             let processing_text = Block::new()
-                .title_top(format!("{DOT} Processing {DOT}"))
+                .title_top(format!(" {DOT} Processing {DOT} "))
                 .title_alignment(Alignment::Center)
                 .style(Style::default().fg(Color::White))
                 .borders(Borders::TOP);
