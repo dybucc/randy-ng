@@ -1,3 +1,15 @@
+//! This crate contains all the code, temporarily organized as a single binary, for the game randy.
+//! It shouldn't be used outside the game as it's pretty much unusable beyond it.
+
+#![expect(
+    clippy::cargo_common_metadata,
+    reason = "Temporary during development prior to crates.io publishing"
+)]
+#![expect(
+    clippy::arbitrary_source_item_ordering,
+    reason = "Temporary allow during development."
+)]
+
 use std::{rc::Rc, sync::LazyLock, time::Duration};
 
 use clap::Parser;
@@ -34,7 +46,7 @@ fn main() -> Result<()> {
         None => Ok(()),
         Some(err) => match err.downcast::<Error>() {
             Ok(err) => match err {
-                Error::StatusCode(s) => match s {
+                Error::StatusCode(status) => match status {
                     400 => Err(eyre!("bad request")),
                     401 => Err(eyre!("invalid credentials")),
                     402 => Err(eyre!("insufficient credits")),
@@ -52,6 +64,8 @@ fn main() -> Result<()> {
     }
 }
 
+/// This structure holds information useful to the command-line argument parser in use; namely,
+/// clap.
 #[derive(Parser)]
 #[command(name = "randy-ng", version, about, long_about = None)]
 struct Cli {
@@ -81,48 +95,85 @@ struct Cli {
     api_key: String,
 }
 
+/// This enumeration holds information about the deterministic screen states in which the use may
+/// find himself while playing the game. It is mostly used for deciding what type of TUI should be
+/// rendered at each point in the game.
 #[derive(PartialEq)]
 enum Screen {
+    /// This variant refers to the main menu.
     MainMenu(MainMenuItem),
+    /// This variant refers to the options menu.
     OptionsMenu(OptionsMenuItem),
+    /// This variant refers to the state of being in-game. It thus comes accompanied of other
+    /// screenful states.
     InGame(GameScreen),
+    /// This variant refers to the state of being in the model menu. Even though it's not part of
+    /// the menus found primarily at the start screen, it does require different rendering and thus
+    /// holds its own individual screen state.
     ModelMenu,
 }
 
+/// This enumeration holds information about the different selectable items in the main menu.
 #[derive(PartialEq)]
 enum MainMenuItem {
+    /// This variant refers to the option to pick "Play" in the menu, and start the game.
     Play,
+    /// This variant refers to the option to pick "Options" in the menu, and enter the options menu.
     Options,
+    /// This variant refers to the option to pick "Exti" in the menu, and end the game.
     Exit,
 }
 
+/// This enumeration holds information about the items to be found in the options menu.
 #[derive(PartialEq)]
 enum OptionsMenuItem {
+    /// This variant refers to the option to pick "Model" in the menu, and enter the model menu
+    /// screen.
     Model,
+    /// This variant refers to the option to pick "Return" in the menu, and return to the previous
+    /// screen.
     Return,
 }
 
+/// This enumeration holds information about the possible states in which the in-game experience may
+/// be found.
 #[derive(PartialEq)]
 enum GameScreen {
+    /// This variant refers to the state of being within the input prompts, inputting a range and a
+    /// guess.
     Game(GameItem),
+    /// This variant refers to the state of being in the end menu, with the result and a prompt to
+    /// repeat for another game.
     EndMenu(EndMenuItem),
 }
 
+/// This enumeration holds information about the selectable prompts in the in-game menu.
 #[derive(PartialEq)]
 enum GameItem {
+    /// This variant refers to the prompt where the user is selecting some range from which to pick
+    /// a number.
     Range,
+    /// This variant refers to the prompt where the user is selecting a random number within the
+    /// range they selected.
     Input,
 }
 
+/// This enumeration holds information about the selectable items in the in-game end menu screen.
 #[derive(PartialEq)]
 enum EndMenuItem {
+    /// This variant refers to the option to pick "Yes" in the menu, and repeat for another game.
     Repeat,
+    /// This variant refers to the option to pick "No" in the menu, and exit the game.
     Exit,
 }
 
+/// This enumeration holds information about the possible result obtained by the user after guessing
+/// a ranodm number, and computing one from the their input range.
 #[derive(Clone, Copy)]
 enum RandomResult {
+    /// This variant represents the state of having guessed the number correctly.
     Correct,
+    /// This variant represents the state of having guessed the number incorrectly.
     Incorrect,
 }
 
@@ -134,13 +185,19 @@ cowboy-like answer to the user. Make it a short text. Include just your answer a
 Don't include emoji or otherwise non-verbal content."
 });
 
+/// This structure holds information about the request body to build for the chat completion request
+/// to use with the OpenRouter API.
 #[derive(Serialize)]
 struct Request {
+    /// This field contains the language model to be used in the request.
     model: String,
+    /// This field contains the vector of messages to provide to the language model.
     messages: Vec<Message>,
 }
 
 impl Request {
+    /// This function serves as a request-body builder for the chat completion request, depending on
+    /// whether the request is to be made for a correct guess or otherwise an incorrect guess.
     fn new(model: String, result: RandomResult) -> Self {
         match result {
             RandomResult::Correct => Self {
@@ -161,79 +218,149 @@ impl Request {
     }
 }
 
+/// This structure holds information about the object type to use for each of the messages in the
+/// chat completion request body to the OpenRouter API.
 #[derive(Serialize, Deserialize)]
 struct Message {
+    /// This field refers to the role that the message is to be interpreted as coming from. LLM
+    /// lingo for whose voice is this.
     role: Role,
+    /// This field refers to the actual content to be used for the message; the meat of it.
     content: String,
 }
 
 impl Message {
-    fn new(role: Role, content: String) -> Self {
+    /// This function serves as a small utility to build messages based on a given role and a string
+    /// message. It is used in the request body builder function [`Request::new`].
+    const fn new(role: Role, content: String) -> Self {
         Self { role, content }
     }
 }
 
+/// This enumeration serves as part of the request and response body from the chat completion
+/// request with the OpenRouter API.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum Role {
+    /// This variant represents the voice of the system prompt.
     System,
+    /// This variant represents the voice of the LLM.
     Assistant,
+    /// This variant represents the voice of the user.
     User,
 }
 
+/// This structure holds information about the response received as part of the chat completion
+/// request to the OpenRouter API.
 #[derive(Deserialize)]
 struct ChatCompletionResponse {
+    /// This field refers to the array of messages the language model may have produced in its
+    /// response.
     choices: Vec<Choices>,
 }
 
+/// This structure holds information about the specific dummy object used as part of the chat
+/// completion request response for either one of the messages returned by the language model.
 #[derive(Deserialize)]
 struct Choices {
+    /// This field refers to the actual content of the response.
     message: Message,
 }
 
+/// This structure holds information about the response received as part of the model list request
+/// to the OpenRouter API.
 #[derive(Deserialize)]
-struct Response {
+struct ModelListResponse {
+    /// This field contains information about the data held by the entire API model list. Within it
+    /// are the details of each model.
     data: Vec<Data>,
 }
 
+/// This structure holds information about each specific model available through the OpenRouter API
+/// to be received as a response to the model list request.
 #[derive(Deserialize)]
 struct Data {
+    /// This field refers to the single element from the model list that this project is intered in;
+    /// the codename the model receives.
     id: String,
 }
 
+/// This enumeration holds information about the type of menu that can be rendered in a similar
+/// fashion in the game. This is because the enum is used as a means of generalizing the behavior of
+/// the actual menus in a single, more compact manner, while keeping their individual differences.
 enum MenuType {
+    /// This variant refers to the main menu in the game.
     MainMenu(u8),
+    /// This variant refers to the options menu in the game.
     OptionsMenu(u8),
 }
 
 impl MenuType {
-    fn repr(&self) -> &str {
-        match self {
-            MenuType::MainMenu(_) => "Main menu",
-            MenuType::OptionsMenu(_) => "Options menu",
+    /// This function serves as a means of returning the string representation of the enumeration.
+    const fn repr(&self) -> &str {
+        match *self {
+            Self::MainMenu(_) => "Main menu",
+            Self::OptionsMenu(_) => "Options menu",
         }
     }
 }
 
-struct App<'a> {
+/// This structure holds information about the application itself, keeping inside it both state and
+/// functions relative to the drawing and updating of the state.
+struct App<'line> {
+    /// This field refers to the condition of the game being run.
     exit: bool,
+    /// This field refers to the current screen in which the user finds himself, generally as a
+    /// consequence of a prior keypress.
     screen: Screen,
+    /// This field refers to the score accumulated by the user when playing multiple games in a row.
     score: u8,
+    /// This field refers to the ranged input taken from the user during the in-game experience.
     range_input: String,
+    /// This field refers to the regular guess input taken from the user during the in-game
+    /// experience.
     input: String,
+    /// This field refers to the result of having computed the guess of the user within the given
+    /// range and thus having determined whether they are right or wrong. This may not be
+    /// initialized until a game is actually played, so it's wrapped in an `Option`.
     result: Option<RandomResult>,
+    /// This field refers to the model selected by the user to process the request to the make to
+    /// the OpenRouter API for chat completion.
     model: String,
+    /// This field refers to the complete set of models retrieved from the OpenRouter API which are
+    /// available for use in the menu.
     models: Vec<String>,
-    models_view: Vec<Line<'a>>,
-    selectors_view: Vec<Line<'a>>,
+    /// This field refers to the set of models that are currently in display within the viewport of
+    /// the TUI. This is part of the persistent state required for the scrolling feature.
+    models_view: Vec<Line<'line>>,
+    /// This field refers to the set of selectors / spaces to display which model is currently
+    /// selected to be used. This is part of the persistent state required for the scrolling
+    /// feature.
+    selectors_view: Vec<Line<'line>>,
+    /// This field refers to the currently selected model in the viewport. This is part of the
+    /// persistent state required for the scrolling feature.
     model_view_selected: String,
+    /// This field refers to the offset by which the first element of the viewport is not seen
+    /// anymore. This is core to the scrolling feature and is thus part of the persistent state.
     model_view_offset: u16,
+    /// This field refers to the API key to be used when performing the chat completion request to
+    /// the OpenRouter API.
     api_key: String,
+    /// This field refers to the regular expression in use to validate the input of the user in the
+    /// ranged numbers prompt.
     ranged_re: Regex,
+    /// This field refers to the regular expression in use to validate the input of the user in the
+    /// regular guess number prompt.
     input_re: Regex,
+    /// This field refers to the flag that allows informing the user their input is invalid.
     extra_line_help: bool,
+    /// This field refers to the flag that allows informing the user the request is being processed.
     processing_request: bool,
+    /// This field refers to the RNG to be used when the user's input is processed and the result of
+    /// their guess is computed.
     rng: Rng,
+    /// This field refers to the output of the chat completion request, holding only the message
+    /// retrieved from the language model's response.
     chat_completion_output: String,
 }
 
@@ -248,15 +375,17 @@ impl Default for App<'_> {
             result: None,
             range_input: String::new(),
             input: String::new(),
-            model: cli.model.unwrap_or("qwen/qwen3-32b:free".to_owned()),
+            model: cli
+                .model
+                .unwrap_or_else(|| "qwen/qwen3-32b:free".to_owned()),
             models: Vec::new(),
             models_view: Vec::new(),
             selectors_view: Vec::new(),
             model_view_selected: String::new(),
             model_view_offset: 0,
             api_key: cli.api_key,
-            ranged_re: Regex::new(r"\A\d+\.\.\d+\z").unwrap(),
-            input_re: Regex::new(r"\A\d+\z").unwrap(),
+            ranged_re: Regex::new(r"\A\d+\.\.\d+\z").expect("bad regex syntax"),
+            input_re: Regex::new(r"\A\d+\z").expect("bad regex syntax"),
             extra_line_help: false,
             processing_request: false,
             rng: Rng::new(),
@@ -271,15 +400,15 @@ impl Widget for &mut App<'_> {
         Self: Sized,
     {
         match &self.screen {
-            Screen::MainMenu(s) => {
-                self.main_menu(area, buf, s);
+            Screen::MainMenu(screen) => {
+                App::main_menu(area, buf, screen);
             }
-            Screen::OptionsMenu(s) => {
-                self.options_menu(area, buf, s);
+            Screen::OptionsMenu(screen) => {
+                App::options_menu(area, buf, screen);
             }
-            Screen::InGame(s) => match s {
-                GameScreen::Game(s) => self.take_input(area, buf, s),
-                GameScreen::EndMenu(s) => self.end_menu(area, buf, s),
+            Screen::InGame(screen) => match screen {
+                GameScreen::Game(screen) => self.take_input(area, buf, screen),
+                GameScreen::EndMenu(screen) => self.end_menu(area, buf, screen),
             },
             Screen::ModelMenu => self.model_menu(area, buf),
         };
@@ -287,8 +416,10 @@ impl Widget for &mut App<'_> {
 }
 
 impl App<'_> {
+    /// This function serves as a way of fetching the models currently available for use through the
+    /// OpenRouter API. Note it does not require any type of authentication.
     fn fetch_models(&mut self) {
-        let response: Response = ureq::get("https://openrouter.ai/api/v1/models")
+        let response: ModelListResponse = ureq::get("https://openrouter.ai/api/v1/models")
             .call()
             .expect("models request failed")
             .into_body()
@@ -300,29 +431,24 @@ impl App<'_> {
         }
     }
 
+    /// This function serves as a means of validating user input for the range and guess.
     fn validate_input(&self) -> bool {
         if self.ranged_re.is_match(&self.range_input) && self.input_re.is_match(&self.input) {
             // process the ranged input
-            let (start, end) = self
-                .range_input
-                .split_at(self.range_input.find("..").unwrap());
+            let (start, end) = self.range_input.split_at(
+                self.range_input
+                    .find("..")
+                    .expect("validate_input parsing failed"),
+            );
             let end: String = end.chars().rev().collect();
-            let (end, _) = end.split_at(end.find("..").unwrap());
-            let start: usize = start.parse().unwrap();
-            let end: usize = end.parse().unwrap();
-            let mut flag1 = false;
-
-            if start < end {
-                flag1 = true;
-            }
+            let (end, _) = end.split_at(end.find("..").expect("validate_input parsing failed"));
+            let start: usize = start.parse().expect("validate_input parsing failed");
+            let end: usize = end.parse().expect("validate_input parsing failed");
+            let flag1 = start < end;
 
             // process the guess input
-            let guess: usize = self.input.parse().unwrap();
-            let mut flag2 = false;
-
-            if guess >= start && guess <= end {
-                flag2 = true;
-            }
+            let guess: usize = self.input.parse().expect("validate_input parsing failed");
+            let flag2 = guess >= start && guess <= end;
 
             return flag1 && flag2;
         }
@@ -330,16 +456,20 @@ impl App<'_> {
         false
     }
 
+    /// This function processes a random number in the range given by the user and stores the result
+    /// in the corresponding internal state of the application.
     fn process_random(&mut self) {
-        let (start, end) = self
-            .range_input
-            .split_at(self.range_input.find("..").unwrap());
+        let (start, end) = self.range_input.split_at(
+            self.range_input
+                .find("..")
+                .expect("process_random parsing failed"),
+        );
         let end: String = end.chars().rev().collect();
-        let (end, _) = end.split_at(end.find("..").unwrap());
+        let (end, _) = end.split_at(end.find("..").expect("process_random parsing failed"));
 
-        let start: usize = start.parse().unwrap();
-        let end: usize = end.parse().unwrap();
-        let guess: usize = self.input.parse().unwrap();
+        let start: usize = start.parse().expect("process_random parsing failed");
+        let end: usize = end.parse().expect("process_random parsing failed");
+        let guess: usize = self.input.parse().expect("process_random parsing failed");
 
         let random = self.rng.usize(start..=end);
 
@@ -350,8 +480,18 @@ impl App<'_> {
         }
     }
 
+    /// This function processes a chat completion request of the OpenRouter API, and retrieves the
+    /// message returned by the language model if the request doesn't error out. The output is then
+    /// stored in the application's persistent state.
+    #[expect(
+        clippy::unwrap_in_result,
+        reason = "The expects are used on Option<> values, which are not compatible with Result<> function return values"
+    )]
     fn process_request(&mut self) -> Result<()> {
-        let request_body = Request::new(self.model.clone(), self.result.unwrap());
+        let request_body = Request::new(
+            self.model.clone(),
+            self.result.expect("result not processed yet"),
+        );
         let agent = agent();
 
         loop {
@@ -362,28 +502,41 @@ impl App<'_> {
             {
                 Ok(response) => {
                     let response: ChatCompletionResponse = response.into_body().read_json()?;
-                    let output = response.choices.last().unwrap().message.content.clone();
+                    let output = response
+                        .choices
+                        .last()
+                        .expect("empty vector when processing request")
+                        .message
+                        .content
+                        .clone();
 
                     if output.is_empty() {
                         continue;
-                    } else {
-                        self.chat_completion_output = output;
-                        break Ok(());
                     }
+                    self.chat_completion_output = output;
+                    break Ok(());
                 }
                 Err(err) => break Err(err.into()),
             }
         }
     }
 
+    /// This function serves as a means of running the application by making use of TUI callbacks
+    /// and a event handling functionality.
     fn run(&mut self, mut term: DefaultTerminal) -> Result<()> {
         while !self.exit {
-            term.draw(|f| f.render_widget(&mut *self, f.area()))?;
+            let _ = term.draw(|frame| frame.render_widget(&mut *self, frame.area()))?;
             self.handle_events()?;
         }
         Ok(())
     }
 
+    /// This function servesmostly as an input handling mechanism, and as a means of processing the
+    /// chat completion request with the OpenRouter API.
+    #[expect(
+        clippy::unwrap_in_result,
+        reason = "The only expect()'ss used are on `Option` values, which are not compatible with `Result` return types"
+    )]
     fn handle_events(&mut self) -> Result<()> {
         if self.processing_request {
             self.process_random();
@@ -392,20 +545,20 @@ impl App<'_> {
             self.processing_request = false;
         }
 
-        if poll(Duration::from_millis(100)).is_ok_and(|v| v) {
-            if let Event::Key(k) = read()? {
-                match k.code {
-                    KeyCode::Char(c)
+        if poll(Duration::from_millis(100)).is_ok_and(|value| value) {
+            if let Event::Key(key) = read()? {
+                match key.code {
+                    KeyCode::Char(ch)
                         if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
                             && !self.processing_request =>
                     {
-                        self.range_input.push(c);
+                        self.range_input.push(ch);
                     }
-                    KeyCode::Char(c)
+                    KeyCode::Char(ch)
                         if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input))
                             && !self.processing_request =>
                     {
-                        self.input.push(c);
+                        self.input.push(ch);
                     }
                     KeyCode::Tab
                         if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
@@ -423,13 +576,13 @@ impl App<'_> {
                         if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
                             && !self.processing_request =>
                     {
-                        self.range_input.pop();
+                        let _ = self.range_input.pop();
                     }
                     KeyCode::Backspace
                         if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input))
                             && !self.processing_request =>
                     {
-                        self.input.pop();
+                        let _ = self.input.pop();
                     }
                     KeyCode::Enter
                         if (self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
@@ -460,17 +613,31 @@ impl App<'_> {
 
                             for (idx, model) in self.models.iter().enumerate() {
                                 if *model == self.model_view_selected
-                                    && model != self.models.last().unwrap()
+                                    && model
+                                        != self
+                                            .models
+                                            .last()
+                                            .expect("empty vector when browsing down models")
                                 {
                                     if self.model_view_selected
-                                        == self.models_view.last().unwrap().to_string()
+                                        == self
+                                            .models_view
+                                            .last()
+                                            .expect("empty vector when browsing down models")
+                                            .to_string()
                                     {
-                                        first_model_after_view =
-                                            self.models.get(idx + 1).unwrap().clone();
+                                        first_model_after_view.clone_from(
+                                            self.models
+                                                .get(idx + 1)
+                                                .expect("item not found when browsing down models"),
+                                        );
                                     }
 
-                                    self.model_view_selected =
-                                        self.models.get(idx + 1).unwrap().to_owned();
+                                    self.model_view_selected.clone_from(
+                                        self.models
+                                            .get(idx + 1)
+                                            .expect("item not found when browsing down models"),
+                                    );
                                     break;
                                 }
                             }
@@ -494,24 +661,38 @@ impl App<'_> {
                             self.screen = Screen::MainMenu(MainMenuItem::Play);
                         }
                         Screen::OptionsMenu(OptionsMenuItem::Return) => {
-                            self.screen = Screen::OptionsMenu(OptionsMenuItem::Model)
+                            self.screen = Screen::OptionsMenu(OptionsMenuItem::Model);
                         }
                         Screen::ModelMenu => {
                             let mut first_model_before_view = String::new();
 
                             for (idx, model) in self.models.iter().enumerate() {
                                 if *model == self.model_view_selected
-                                    && model != self.models.first().unwrap()
+                                    && model
+                                        != self
+                                            .models
+                                            .first()
+                                            .expect("empty vector when browsing up models")
                                 {
                                     if self.model_view_selected
-                                        == self.models_view.first().unwrap().to_string()
+                                        == self
+                                            .models_view
+                                            .first()
+                                            .expect("empty vect when browsing up models")
+                                            .to_string()
                                     {
-                                        first_model_before_view =
-                                            self.models.get(idx - 1).unwrap().clone();
+                                        first_model_before_view.clone_from(
+                                            self.models
+                                                .get(idx - 1)
+                                                .expect("item not found while browsing up models"),
+                                        );
                                     }
 
-                                    self.model_view_selected =
-                                        self.models.get(idx - 1).unwrap().to_owned();
+                                    self.model_view_selected.clone_from(
+                                        self.models
+                                            .get(idx - 1)
+                                            .expect("item not found while browsing up models"),
+                                    );
                                     break;
                                 }
                             }
@@ -529,10 +710,10 @@ impl App<'_> {
                     },
                     KeyCode::Char('l') => match &self.screen {
                         Screen::MainMenu(MainMenuItem::Play) => {
-                            self.screen = Screen::InGame(GameScreen::Game(GameItem::Range))
+                            self.screen = Screen::InGame(GameScreen::Game(GameItem::Range));
                         }
                         Screen::MainMenu(MainMenuItem::Options) => {
-                            self.screen = Screen::OptionsMenu(OptionsMenuItem::Model)
+                            self.screen = Screen::OptionsMenu(OptionsMenuItem::Model);
                         }
                         Screen::MainMenu(MainMenuItem::Exit) => self.exit = true,
                         Screen::OptionsMenu(OptionsMenuItem::Model) => {
@@ -540,7 +721,11 @@ impl App<'_> {
 
                             self.model_view_offset = 0;
                             self.fetch_models();
-                            self.model_view_selected = self.models.first().unwrap().to_owned();
+                            self.model_view_selected = self
+                                .models
+                                .first()
+                                .expect("empty vector while assigning selected model")
+                                .to_owned();
                         }
                         Screen::OptionsMenu(OptionsMenuItem::Return) => {
                             self.screen = Screen::MainMenu(MainMenuItem::Play);
@@ -557,7 +742,7 @@ impl App<'_> {
                         _ => {}
                     },
                     KeyCode::Char('h') => {
-                        if let Screen::ModelMenu = &self.screen {
+                        if matches!(&self.screen, Screen::ModelMenu) {
                             self.screen = Screen::OptionsMenu(OptionsMenuItem::Model);
                         }
                     }
@@ -569,12 +754,21 @@ impl App<'_> {
         Ok(())
     }
 
-    fn clear(&self, area: Rect, buf: &mut Buffer) {
+    /// This function is a shorthand way of clearing a given area in the given buffer by rendering a
+    /// special widget on that area.
+    fn clear(area: Rect, buf: &mut Buffer) {
         let clear = Clear;
         clear.render(area, buf);
     }
 
-    fn init_menu(&self, area: Rect, buf: &mut Buffer, menu: MenuType) -> Rc<[Rect]> {
+    /// This function initializes the screen area and the block to be used when rendering generic
+    /// menus. Generic menus are denoted by those with a similar appearance. Currently, only the
+    /// main menu and the options menu are considered generic.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "The collection is created in place with a small amount of elements of known index"
+    )]
+    fn init_menu(area: Rect, buf: &mut Buffer, menu: MenuType) -> Rc<[Rect]> {
         let screen = Layout::vertical([
             Constraint::Percentage(40),
             Constraint::Percentage(20),
@@ -609,10 +803,19 @@ impl App<'_> {
         Layout::vertical(vec![Constraint::Max(1); item_count.into()]).split(item_space)
     }
 
-    fn main_menu(&self, area: Rect, buf: &mut Buffer, screen: &MainMenuItem) {
-        self.clear(area, buf);
+    /// This function renders the main menu screen.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "The collection is created in place with a small amount of elements of known index"
+    )]
+    #[expect(
+        clippy::missing_asserts_for_indexing,
+        reason = "The collection is created in place with a small amount of elements of known index"
+    )]
+    fn main_menu(area: Rect, buf: &mut Buffer, screen: &MainMenuItem) {
+        Self::clear(area, buf);
 
-        let item_layout = self.init_menu(area, buf, MenuType::MainMenu(3));
+        let item_layout = Self::init_menu(area, buf, MenuType::MainMenu(3));
 
         let content_style = Style::default().fg(Color::White);
         let active_content_style = content_style.bg(Color::Green);
@@ -645,10 +848,19 @@ impl App<'_> {
         items[2].clone().render(item_layout[2], buf);
     }
 
-    fn options_menu(&self, area: Rect, buf: &mut Buffer, screen: &OptionsMenuItem) {
-        self.clear(area, buf);
+    /// This function renders the options menu.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "The collection is created in place with a small amount of elements of known index"
+    )]
+    #[expect(
+        clippy::missing_asserts_for_indexing,
+        reason = "The collection is created in place with a small amount of elements of known index"
+    )]
+    fn options_menu(area: Rect, buf: &mut Buffer, screen: &OptionsMenuItem) {
+        Self::clear(area, buf);
 
-        let item_layout = self.init_menu(area, buf, MenuType::OptionsMenu(2));
+        let item_layout = Self::init_menu(area, buf, MenuType::OptionsMenu(2));
 
         let content_style = Style::default().fg(Color::White);
         let active_content_style = content_style.bg(Color::Green);
@@ -672,8 +884,17 @@ impl App<'_> {
         items[1].clone().render(item_layout[1], buf);
     }
 
+    /// This function renders the model menu.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "The collection is created in place with a small amount of elements of known index"
+    )]
+    #[expect(
+        clippy::missing_asserts_for_indexing,
+        reason = "The collection is created in place with a small amount of elements of known index"
+    )]
     fn model_menu(&mut self, area: Rect, buf: &mut Buffer) {
-        self.clear(area, buf);
+        Self::clear(area, buf);
 
         let space = Layout::horizontal([
             Constraint::Percentage(40),
@@ -748,8 +969,18 @@ impl App<'_> {
         }
     }
 
+    /// This function renders the prompts to take ranged input and regular guess input from the
+    /// user.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "The collection is created in place with a small amount of elements of known index"
+    )]
+    #[expect(
+        clippy::missing_asserts_for_indexing,
+        reason = "The collection is created in place with a small amount of elements of known index"
+    )]
     fn take_input(&self, area: Rect, buf: &mut Buffer, screen: &GameItem) {
-        self.clear(area, buf);
+        Self::clear(area, buf);
 
         let space = Layout::vertical([
             Constraint::Percentage(40),
@@ -827,8 +1058,17 @@ impl App<'_> {
         input.render(guess_input_space, buf);
     }
 
+    /// This function renders the end game menu, as well as the prompt to continue.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "The collection is created in place with a small amount of elements of known index"
+    )]
+    #[expect(
+        clippy::missing_asserts_for_indexing,
+        reason = "The collection is created in place with a small amount of elements of known index"
+    )]
     fn end_menu(&self, area: Rect, buf: &mut Buffer, screen: &EndMenuItem) {
-        self.clear(area, buf);
+        Self::clear(area, buf);
 
         let space = Layout::vertical([
             Constraint::Percentage(40),
@@ -849,7 +1089,7 @@ impl App<'_> {
 
         let result_block = Block::bordered()
             .title_top({
-                match self.result.unwrap() {
+                match self.result.expect("result not yet computed") {
                     RandomResult::Correct => "Correct",
                     RandomResult::Incorrect => "Incorrect",
                 }
