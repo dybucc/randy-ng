@@ -305,6 +305,29 @@ impl MenuType {
     }
 }
 
+/// This enumeration holds information about whether the model menu update should be performed
+/// upward or downward. It is used only when updating the model menu view to determine whether the
+/// command issued by the user should advance the list upward or downward.
+enum ModelMenuDirection {
+    /// This variant refers to the command of moving the viewport upward.
+    Up,
+    /// This variant refers to the command of moving the viewport downward.
+    Down,
+}
+
+/// This enumeration holds information about whether textual input should be handled as a deletion
+/// or as an addition operation to a given field.
+enum OperationType {
+    /// This variant refers to operations of addition type; adding characters to the given field.
+    Addition,
+    /// This variant refers to operations of deletion type; removing characters from the given
+    /// field.
+    Deletion,
+    /// This variant refers to operations where the user switches focus between the two input
+    /// prompts.
+    SwitchFocus,
+}
+
 /// This structure holds information about the application itself, keeping inside it both state and
 /// functions relative to the drawing and updating of the state.
 struct App<'line> {
@@ -531,63 +554,256 @@ impl App<'_> {
         Ok(())
     }
 
-    /// This function servesmostly as an input handling mechanism, and as a means of processing the
-    /// chat completion request with the OpenRouter API.
-    #[expect(
-        clippy::unwrap_in_result,
-        reason = "The only expect()'ss used are on `Option` values, which are not compatible with `Result` return types"
-    )]
-    fn handle_events(&mut self) -> Result<()> {
+    /// This function handles the event where the program requires the chat completion request to be
+    /// processed.
+    fn handle_request(&mut self) -> Result<()> {
         if self.processing_request {
             self.process_random();
             self.process_request()?;
             self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat));
             self.processing_request = false;
         }
+        Ok(())
+    }
+
+    /// This function handles updates to the model menu viewport. It gets issued a command to update
+    /// in either one of of the upward or downward directions, and makes the corresponding changes
+    /// to the persistent state related to this part of the application.
+    fn handle_model_menu_updates(&mut self, direction: ModelMenuDirection) {
+        match direction {
+            ModelMenuDirection::Down => {
+                let mut first_model_after_view = String::new();
+
+                for (idx, model) in self.models.iter().enumerate() {
+                    if *model == self.model_view_selected
+                        && model
+                            != self
+                                .models
+                                .last()
+                                .expect("empty vector when browsing down models")
+                    {
+                        if self.model_view_selected
+                            == self
+                                .models_view
+                                .last()
+                                .expect("empty vector when browsing down models")
+                                .to_string()
+                        {
+                            first_model_after_view.clone_from(
+                                self.models
+                                    .get(idx + 1)
+                                    .expect("item not found when browsing down models"),
+                            );
+                        }
+
+                        self.model_view_selected.clone_from(
+                            self.models
+                                .get(idx + 1)
+                                .expect("item not found when browsing down models"),
+                        );
+                        break;
+                    }
+                }
+
+                if !first_model_after_view.is_empty()
+                    && self.model_view_selected == first_model_after_view
+                {
+                    self.model_view_offset += 1;
+                }
+            }
+            ModelMenuDirection::Up => {
+                let mut first_model_before_view = String::new();
+
+                for (idx, model) in self.models.iter().enumerate() {
+                    if *model == self.model_view_selected
+                        && model
+                            != self
+                                .models
+                                .first()
+                                .expect("empty vector when browsing up models")
+                    {
+                        if self.model_view_selected
+                            == self
+                                .models_view
+                                .first()
+                                .expect("empty vect when browsing up models")
+                                .to_string()
+                        {
+                            first_model_before_view.clone_from(
+                                self.models
+                                    .get(idx - 1)
+                                    .expect("item not found while browsing up models"),
+                            );
+                        }
+
+                        self.model_view_selected.clone_from(
+                            self.models
+                                .get(idx - 1)
+                                .expect("item not found while browsing up models"),
+                        );
+                        break;
+                    }
+                }
+
+                if !first_model_before_view.is_empty()
+                    && self.model_view_selected == first_model_before_view
+                {
+                    self.model_view_offset -= 1;
+                }
+            }
+        }
+    }
+
+    /// This function serves as a textual input hanlder when the user is either inputting or
+    /// deleting characters on the in-game input prompts.
+    fn handle_textual_input(&mut self, operation: OperationType, char: Option<char>) {
+        match &self.screen {
+            Screen::InGame(GameScreen::Game(GameItem::Range)) => match operation {
+                OperationType::Addition => {
+                    self.range_input.push(char.expect("no character to push"));
+                }
+                OperationType::Deletion => {
+                    let _ = self.range_input.pop();
+                }
+                OperationType::SwitchFocus => {
+                    self.screen = Screen::InGame(GameScreen::Game(GameItem::Input));
+                }
+            },
+            Screen::InGame(GameScreen::Game(GameItem::Input)) => match operation {
+                OperationType::Addition => {
+                    self.input.push(char.expect("no character to push"));
+                }
+                OperationType::Deletion => {
+                    let _ = self.input.pop();
+                }
+                OperationType::SwitchFocus => {
+                    self.screen = Screen::InGame(GameScreen::Game(GameItem::Range));
+                }
+            },
+            _ => {}
+        }
+    }
+
+    /// This function holds the event handling behavior corresponding to the 'l' character press
+    /// event.
+    fn handle_l_input(&mut self) {
+        match &self.screen {
+            Screen::MainMenu(MainMenuItem::Play) => {
+                self.screen = Screen::InGame(GameScreen::Game(GameItem::Range));
+            }
+            Screen::MainMenu(MainMenuItem::Options) => {
+                self.screen = Screen::OptionsMenu(OptionsMenuItem::Model);
+            }
+            Screen::MainMenu(MainMenuItem::Exit) => self.exit = true,
+            Screen::OptionsMenu(OptionsMenuItem::Model) => {
+                self.screen = Screen::ModelMenu;
+
+                self.model_view_offset = 0;
+                self.fetch_models();
+                self.model_view_selected = self
+                    .models
+                    .first()
+                    .expect("empty vector while assigning selected model")
+                    .to_owned();
+            }
+            Screen::OptionsMenu(OptionsMenuItem::Return) => {
+                self.screen = Screen::MainMenu(MainMenuItem::Play);
+            }
+            Screen::ModelMenu => {
+                self.model = self.model_view_selected.clone();
+            }
+            Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat)) => {
+                self.screen = Screen::InGame(GameScreen::Game(GameItem::Range));
+            }
+            Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit)) => {
+                self.exit = true;
+            }
+            _ => {}
+        }
+    }
+
+    /// This function holds the event handling behavior corresponding to the 'k' character press
+    /// event.
+    fn handle_k_input(&mut self) {
+        match &self.screen {
+            Screen::MainMenu(MainMenuItem::Exit) => {
+                self.screen = Screen::MainMenu(MainMenuItem::Options);
+            }
+            Screen::MainMenu(MainMenuItem::Options) => {
+                self.screen = Screen::MainMenu(MainMenuItem::Play);
+            }
+            Screen::OptionsMenu(OptionsMenuItem::Return) => {
+                self.screen = Screen::OptionsMenu(OptionsMenuItem::Model);
+            }
+            Screen::ModelMenu => {
+                self.handle_model_menu_updates(ModelMenuDirection::Up);
+            }
+            Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit)) => {
+                self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat));
+            }
+            _ => {}
+        }
+    }
+
+    /// This function holds the event handling behavior corresponding to the 'j' character press
+    /// event.
+    fn handle_j_input(&mut self) {
+        match &self.screen {
+            Screen::MainMenu(MainMenuItem::Play) => {
+                self.screen = Screen::MainMenu(MainMenuItem::Options);
+            }
+            Screen::MainMenu(MainMenuItem::Options) => {
+                self.screen = Screen::MainMenu(MainMenuItem::Exit);
+            }
+            Screen::OptionsMenu(OptionsMenuItem::Model) => {
+                self.screen = Screen::OptionsMenu(OptionsMenuItem::Return);
+            }
+            Screen::ModelMenu => {
+                self.handle_model_menu_updates(ModelMenuDirection::Down);
+            }
+            Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat)) => {
+                self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit));
+            }
+            _ => {}
+        }
+    }
+
+    /// This function holds the event handling behavior corresponding to the 'h' character press
+    /// event.
+    fn handle_h_input(&mut self) {
+        if matches!(&self.screen, Screen::ModelMenu) {
+            self.screen = Screen::OptionsMenu(OptionsMenuItem::Model);
+        }
+    }
+
+    /// This function serves mostly as an input handling mechanism, and as a means of processing the
+    /// chat completion request with the OpenRouter API.
+    fn handle_events(&mut self) -> Result<()> {
+        self.handle_request()?;
 
         if poll(Duration::from_millis(100)).is_ok_and(|value| value) {
             if let Event::Key(key) = read()? {
                 match key.code {
                     KeyCode::Char(ch)
-                        if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
+                        if matches!(self.screen, Screen::InGame(GameScreen::Game(_)))
                             && !self.processing_request =>
                     {
-                        self.range_input.push(ch);
-                    }
-                    KeyCode::Char(ch)
-                        if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input))
-                            && !self.processing_request =>
-                    {
-                        self.input.push(ch);
+                        self.handle_textual_input(OperationType::Addition, Some(ch));
                     }
                     KeyCode::Tab
-                        if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
+                        if matches!(self.screen, Screen::InGame(GameScreen::Game(_)))
                             && !self.processing_request =>
                     {
-                        self.screen = Screen::InGame(GameScreen::Game(GameItem::Input));
-                    }
-                    KeyCode::Tab
-                        if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input))
-                            && !self.processing_request =>
-                    {
-                        self.screen = Screen::InGame(GameScreen::Game(GameItem::Range));
+                        self.handle_textual_input(OperationType::SwitchFocus, None);
                     }
                     KeyCode::Backspace
-                        if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
+                        if matches!(self.screen, Screen::InGame(GameScreen::Game(_)))
                             && !self.processing_request =>
                     {
-                        let _ = self.range_input.pop();
-                    }
-                    KeyCode::Backspace
-                        if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input))
-                            && !self.processing_request =>
-                    {
-                        let _ = self.input.pop();
+                        self.handle_textual_input(OperationType::Deletion, None);
                     }
                     KeyCode::Enter
-                        if (self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
-                            || self.screen
-                                == Screen::InGame(GameScreen::Game(GameItem::Input)))
+                        if matches!(self.screen, Screen::InGame(GameScreen::Game(_)))
                             && !self.processing_request =>
                     {
                         if self.validate_input() {
@@ -598,154 +814,10 @@ impl App<'_> {
                         }
                     }
                     KeyCode::Char('q') => self.exit = true,
-                    KeyCode::Char('j') => match &self.screen {
-                        Screen::MainMenu(MainMenuItem::Play) => {
-                            self.screen = Screen::MainMenu(MainMenuItem::Options);
-                        }
-                        Screen::MainMenu(MainMenuItem::Options) => {
-                            self.screen = Screen::MainMenu(MainMenuItem::Exit);
-                        }
-                        Screen::OptionsMenu(OptionsMenuItem::Model) => {
-                            self.screen = Screen::OptionsMenu(OptionsMenuItem::Return);
-                        }
-                        Screen::ModelMenu => {
-                            let mut first_model_after_view = String::new();
-
-                            for (idx, model) in self.models.iter().enumerate() {
-                                if *model == self.model_view_selected
-                                    && model
-                                        != self
-                                            .models
-                                            .last()
-                                            .expect("empty vector when browsing down models")
-                                {
-                                    if self.model_view_selected
-                                        == self
-                                            .models_view
-                                            .last()
-                                            .expect("empty vector when browsing down models")
-                                            .to_string()
-                                    {
-                                        first_model_after_view.clone_from(
-                                            self.models
-                                                .get(idx + 1)
-                                                .expect("item not found when browsing down models"),
-                                        );
-                                    }
-
-                                    self.model_view_selected.clone_from(
-                                        self.models
-                                            .get(idx + 1)
-                                            .expect("item not found when browsing down models"),
-                                    );
-                                    break;
-                                }
-                            }
-
-                            if !first_model_after_view.is_empty()
-                                && self.model_view_selected == first_model_after_view
-                            {
-                                self.model_view_offset += 1;
-                            }
-                        }
-                        Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat)) => {
-                            self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit));
-                        }
-                        _ => {}
-                    },
-                    KeyCode::Char('k') => match &self.screen {
-                        Screen::MainMenu(MainMenuItem::Exit) => {
-                            self.screen = Screen::MainMenu(MainMenuItem::Options);
-                        }
-                        Screen::MainMenu(MainMenuItem::Options) => {
-                            self.screen = Screen::MainMenu(MainMenuItem::Play);
-                        }
-                        Screen::OptionsMenu(OptionsMenuItem::Return) => {
-                            self.screen = Screen::OptionsMenu(OptionsMenuItem::Model);
-                        }
-                        Screen::ModelMenu => {
-                            let mut first_model_before_view = String::new();
-
-                            for (idx, model) in self.models.iter().enumerate() {
-                                if *model == self.model_view_selected
-                                    && model
-                                        != self
-                                            .models
-                                            .first()
-                                            .expect("empty vector when browsing up models")
-                                {
-                                    if self.model_view_selected
-                                        == self
-                                            .models_view
-                                            .first()
-                                            .expect("empty vect when browsing up models")
-                                            .to_string()
-                                    {
-                                        first_model_before_view.clone_from(
-                                            self.models
-                                                .get(idx - 1)
-                                                .expect("item not found while browsing up models"),
-                                        );
-                                    }
-
-                                    self.model_view_selected.clone_from(
-                                        self.models
-                                            .get(idx - 1)
-                                            .expect("item not found while browsing up models"),
-                                    );
-                                    break;
-                                }
-                            }
-
-                            if !first_model_before_view.is_empty()
-                                && self.model_view_selected == first_model_before_view
-                            {
-                                self.model_view_offset -= 1;
-                            }
-                        }
-                        Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit)) => {
-                            self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat));
-                        }
-                        _ => {}
-                    },
-                    KeyCode::Char('l') => match &self.screen {
-                        Screen::MainMenu(MainMenuItem::Play) => {
-                            self.screen = Screen::InGame(GameScreen::Game(GameItem::Range));
-                        }
-                        Screen::MainMenu(MainMenuItem::Options) => {
-                            self.screen = Screen::OptionsMenu(OptionsMenuItem::Model);
-                        }
-                        Screen::MainMenu(MainMenuItem::Exit) => self.exit = true,
-                        Screen::OptionsMenu(OptionsMenuItem::Model) => {
-                            self.screen = Screen::ModelMenu;
-
-                            self.model_view_offset = 0;
-                            self.fetch_models();
-                            self.model_view_selected = self
-                                .models
-                                .first()
-                                .expect("empty vector while assigning selected model")
-                                .to_owned();
-                        }
-                        Screen::OptionsMenu(OptionsMenuItem::Return) => {
-                            self.screen = Screen::MainMenu(MainMenuItem::Play);
-                        }
-                        Screen::ModelMenu => {
-                            self.model = self.model_view_selected.clone();
-                        }
-                        Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat)) => {
-                            self.screen = Screen::InGame(GameScreen::Game(GameItem::Range));
-                        }
-                        Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit)) => {
-                            self.exit = true;
-                        }
-                        _ => {}
-                    },
-                    KeyCode::Char('h') => {
-                        if matches!(&self.screen, Screen::ModelMenu) {
-                            self.screen = Screen::OptionsMenu(OptionsMenuItem::Model);
-                        }
-                    }
+                    KeyCode::Char('j') => self.handle_j_input(),
+                    KeyCode::Char('k') => self.handle_k_input(),
+                    KeyCode::Char('l') => self.handle_l_input(),
+                    KeyCode::Char('h') => self.handle_h_input(),
                     _ => {}
                 }
             }
@@ -766,7 +838,7 @@ impl App<'_> {
     /// main menu and the options menu are considered generic.
     #[expect(
         clippy::indexing_slicing,
-        reason = "The collection is created in place with a small amount of elements of known index"
+        reason = "The collection is created in place with a small amount of elements of known index."
     )]
     fn init_menu(area: Rect, buf: &mut Buffer, menu: MenuType) -> Rc<[Rect]> {
         let screen = Layout::vertical([
@@ -806,11 +878,11 @@ impl App<'_> {
     /// This function renders the main menu screen.
     #[expect(
         clippy::indexing_slicing,
-        reason = "The collection is created in place with a small amount of elements of known index"
+        reason = "The collection is created in place with a small amount of elements of known index."
     )]
     #[expect(
         clippy::missing_asserts_for_indexing,
-        reason = "The collection is created in place with a small amount of elements of known index"
+        reason = "The collection is created in place with a small amount of elements of known index."
     )]
     fn main_menu(area: Rect, buf: &mut Buffer, screen: &MainMenuItem) {
         Self::clear(area, buf);
@@ -851,11 +923,11 @@ impl App<'_> {
     /// This function renders the options menu.
     #[expect(
         clippy::indexing_slicing,
-        reason = "The collection is created in place with a small amount of elements of known index"
+        reason = "The collection is created in place with a small amount of elements of known index."
     )]
     #[expect(
         clippy::missing_asserts_for_indexing,
-        reason = "The collection is created in place with a small amount of elements of known index"
+        reason = "The collection is created in place with a small amount of elements of known index."
     )]
     fn options_menu(area: Rect, buf: &mut Buffer, screen: &OptionsMenuItem) {
         Self::clear(area, buf);
@@ -887,11 +959,11 @@ impl App<'_> {
     /// This function renders the model menu.
     #[expect(
         clippy::indexing_slicing,
-        reason = "The collection is created in place with a small amount of elements of known index"
+        reason = "The collection is created in place with a small amount of elements of known index."
     )]
     #[expect(
         clippy::missing_asserts_for_indexing,
-        reason = "The collection is created in place with a small amount of elements of known index"
+        reason = "The collection is created in place with a small amount of elements of known index."
     )]
     fn model_menu(&mut self, area: Rect, buf: &mut Buffer) {
         Self::clear(area, buf);
@@ -973,11 +1045,11 @@ impl App<'_> {
     /// user.
     #[expect(
         clippy::indexing_slicing,
-        reason = "The collection is created in place with a small amount of elements of known index"
+        reason = "The collection is created in place with a small amount of elements of known index."
     )]
     #[expect(
         clippy::missing_asserts_for_indexing,
-        reason = "The collection is created in place with a small amount of elements of known index"
+        reason = "The collection is created in place with a small amount of elements of known index."
     )]
     fn take_input(&self, area: Rect, buf: &mut Buffer, screen: &GameItem) {
         Self::clear(area, buf);
@@ -1061,11 +1133,11 @@ impl App<'_> {
     /// This function renders the end game menu, as well as the prompt to continue.
     #[expect(
         clippy::indexing_slicing,
-        reason = "The collection is created in place with a small amount of elements of known index"
+        reason = "The collection is created in place with a small amount of elements of known index."
     )]
     #[expect(
         clippy::missing_asserts_for_indexing,
-        reason = "The collection is created in place with a small amount of elements of known index"
+        reason = "The collection is created in place with a small amount of elements of known index."
     )]
     fn end_menu(&self, area: Rect, buf: &mut Buffer, screen: &EndMenuItem) {
         Self::clear(area, buf);
