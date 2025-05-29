@@ -441,19 +441,27 @@ impl App<'_> {
                             self.screen = Screen::OptionsMenu(OptionsMenuItem::Return);
                         }
                         Screen::ModelMenu => {
+                            let mut first_model_after_view = String::new();
+
                             for (idx, model) in self.models.iter().enumerate() {
                                 if *model == self.model_view_selected
                                     && model != self.models.last().unwrap()
                                 {
+                                    if self.model_view_selected
+                                        == self.models_view.last().unwrap().to_string()
+                                    {
+                                        first_model_after_view =
+                                            self.models.get(idx + 1).unwrap().clone();
+                                    }
+
                                     self.model_view_selected =
                                         self.models.get(idx + 1).unwrap().to_owned();
                                     break;
                                 }
                             }
 
-                            if self.model_view_selected
-                                == self.models_view.last().unwrap().to_string()
-                                && self.model_view_selected != *self.models.last().unwrap()
+                            if !first_model_after_view.is_empty()
+                                && self.model_view_selected == first_model_after_view
                             {
                                 self.model_view_offset += 1;
                             }
@@ -474,19 +482,27 @@ impl App<'_> {
                             self.screen = Screen::OptionsMenu(OptionsMenuItem::Model)
                         }
                         Screen::ModelMenu => {
+                            let mut first_model_before_view = String::new();
+
                             for (idx, model) in self.models.iter().enumerate() {
                                 if *model == self.model_view_selected
                                     && model != self.models.first().unwrap()
                                 {
+                                    if self.model_view_selected
+                                        == self.models_view.first().unwrap().to_string()
+                                    {
+                                        first_model_before_view =
+                                            self.models.get(idx - 1).unwrap().clone();
+                                    }
+
                                     self.model_view_selected =
                                         self.models.get(idx - 1).unwrap().to_owned();
                                     break;
                                 }
                             }
 
-                            if self.model_view_selected
-                                == self.models_view.first().unwrap().to_string()
-                                && self.model_view_selected != *self.models.first().unwrap()
+                            if !first_model_before_view.is_empty()
+                                && self.model_view_selected == first_model_before_view
                             {
                                 self.model_view_offset -= 1;
                             }
