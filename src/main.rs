@@ -1,4 +1,4 @@
-use std::{sync::LazyLock, time::Duration};
+use std::{rc::Rc, sync::LazyLock, time::Duration};
 
 use clap::Parser;
 use color_eyre::{
@@ -199,6 +199,20 @@ struct Response {
 #[derive(Deserialize)]
 struct Data {
     id: String,
+}
+
+enum MenuType {
+    MainMenu(u8),
+    OptionsMenu(u8),
+}
+
+impl MenuType {
+    fn repr(&self) -> &str {
+        match self {
+            MenuType::MainMenu(_) => "Main menu",
+            MenuType::OptionsMenu(_) => "Options menu",
+        }
+    }
 }
 
 struct App<'a> {
@@ -424,6 +438,7 @@ impl App<'_> {
                             && !self.processing_request =>
                     {
                         if self.validate_input() {
+                            self.extra_line_help = false;
                             self.processing_request = true;
                         } else {
                             self.extra_line_help = true;
@@ -559,41 +574,45 @@ impl App<'_> {
         clear.render(area, buf);
     }
 
-    fn init_menu(&self, area: Rect, title: &str, subtitle: &str, buf: &mut Buffer) -> Rect {
+    fn init_menu(&self, area: Rect, buf: &mut Buffer, menu: MenuType) -> Rc<[Rect]> {
         let screen = Layout::vertical([
             Constraint::Percentage(40),
             Constraint::Percentage(20),
             Constraint::Percentage(40),
         ])
         .split(area);
+        let item_count = match menu {
+            MenuType::MainMenu(num) => num,
+            MenuType::OptionsMenu(num) => num,
+        };
 
-        let space = Layout::horizontal([
+        let block_space = Layout::horizontal([
             Constraint::Percentage(40),
             Constraint::Percentage(20),
             Constraint::Percentage(40),
         ])
         .split(screen[1])[1];
-
+        let block_layout = Layout::vertical([Constraint::Max((item_count + 2).into())])
+            .flex(Flex::Center)
+            .split(block_space)[0];
         let block = Block::bordered()
-            .title_top(title)
-            .title_bottom(subtitle)
+            .title_top(menu.repr())
+            .title_bottom("(j) down / (k) up / (l) select")
             .title_alignment(Alignment::Center)
-            .border_type(BorderType::Rounded)
-            .style(Style::default().fg(Color::Green));
+            .style(Color::Green)
+            .border_type(BorderType::Rounded);
 
-        block.clone().render(space, buf);
+        let item_space = block.inner(block_layout);
 
-        block.inner(space)
+        block.render(block_layout, buf);
+
+        Layout::vertical(vec![Constraint::Max(1); item_count.into()]).split(item_space)
     }
 
     fn main_menu(&self, area: Rect, buf: &mut Buffer, screen: &MainMenuItem) {
         self.clear(area, buf);
 
-        let item_space = self.init_menu(area, "Main menu", "(j) down / (k) up / (l) return", buf);
-        let layout = Layout::vertical([Constraint::Max(1); 3])
-            .flex(Flex::SpaceBetween)
-            .vertical_margin(2)
-            .split(item_space);
+        let item_layout = self.init_menu(area, buf, MenuType::MainMenu(3));
 
         let content_style = Style::default().fg(Color::White);
         let active_content_style = content_style.bg(Color::Green);
@@ -621,20 +640,15 @@ impl App<'_> {
             }
         }
 
-        items[0].clone().render(layout[0], buf);
-        items[1].clone().render(layout[1], buf);
-        items[2].clone().render(layout[2], buf);
+        items[0].clone().render(item_layout[0], buf);
+        items[1].clone().render(item_layout[1], buf);
+        items[2].clone().render(item_layout[2], buf);
     }
 
     fn options_menu(&self, area: Rect, buf: &mut Buffer, screen: &OptionsMenuItem) {
         self.clear(area, buf);
 
-        let item_space =
-            self.init_menu(area, "Options menu", "(j) down / (k) up / (l) return", buf);
-        let layout = Layout::vertical([Constraint::Min(1); 2])
-            .flex(Flex::SpaceBetween)
-            .vertical_margin(2)
-            .split(item_space);
+        let item_layout = self.init_menu(area, buf, MenuType::OptionsMenu(2));
 
         let content_style = Style::default().fg(Color::White);
         let active_content_style = content_style.bg(Color::Green);
@@ -654,8 +668,8 @@ impl App<'_> {
             }
         }
 
-        items[0].clone().render(layout[0], buf);
-        items[1].clone().render(layout[1], buf);
+        items[0].clone().render(item_layout[0], buf);
+        items[1].clone().render(item_layout[1], buf);
     }
 
     fn model_menu(&mut self, area: Rect, buf: &mut Buffer) {
