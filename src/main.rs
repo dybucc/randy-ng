@@ -3,7 +3,7 @@
 
 #![expect(
     clippy::cargo_common_metadata,
-    reason = "Temporary during development prior to crates.io publishing"
+    reason = "Temporary during development prior to crates.io publishing."
 )]
 #![expect(
     clippy::arbitrary_source_item_ordering,
@@ -59,7 +59,7 @@ fn main() -> Result<()> {
                 },
                 _ => Err(eyre!("unknown error")),
             },
-            Err(_) => Ok(()),
+            Err(_) => Err(eyre!("unknown error")),
         },
     }
 }
@@ -440,7 +440,8 @@ impl Widget for &mut App<'_> {
 
 impl App<'_> {
     /// This function serves as a way of fetching the models currently available for use through the
-    /// OpenRouter API. Note it does not require any type of authentication.
+    /// OpenRouter API. Note it does not require any type of authentication so the API key is not
+    /// used.
     fn fetch_models(&mut self) {
         let response: ModelListResponse = ureq::get("https://openrouter.ai/api/v1/models")
             .call()
