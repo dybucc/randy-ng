@@ -1,4 +1,4 @@
-use std::sync::LazyLock;
+use std::{sync::LazyLock, time::Duration};
 
 use clap::Parser;
 use color_eyre::{
@@ -7,7 +7,7 @@ use color_eyre::{
 };
 use fastrand::Rng;
 use ratatui::{
-    crossterm::event::{read, Event, KeyCode},
+    crossterm::event::{poll, read, Event, KeyCode},
     init,
     layout::Flex,
     prelude::{
@@ -43,9 +43,9 @@ fn main() -> Result<()> {
                     429 => Err(eyre!("rate limited")),
                     502 => Err(eyre!("invalid response or model down")),
                     503 => Err(eyre!("no available providers")),
-                    _ => Ok(()),
+                    _ => Err(eyre!("unknown error")),
                 },
-                _ => Ok(()),
+                _ => Err(eyre!("unknown error")),
             },
             Err(_) => Ok(()),
         },
@@ -310,10 +310,10 @@ impl App<'_> {
                 flag2 = true;
             }
 
-            flag1 && flag2
-        } else {
-            false
+            return flag1 && flag2;
         }
+
+        false
     }
 
     fn process_random(&mut self) {
@@ -347,8 +347,7 @@ impl App<'_> {
                 .send_json(&request_body)
             {
                 Ok(response) => {
-                    let response: ChatCompletionResponse =
-                        response.into_body().read_json().unwrap();
+                    let response: ChatCompletionResponse = response.into_body().read_json()?;
                     let output = response.choices.last().unwrap().message.content.clone();
 
                     if output.is_empty() {
@@ -372,164 +371,170 @@ impl App<'_> {
     }
 
     fn handle_events(&mut self) -> Result<()> {
-        if let Event::Key(k) = read()? {
-            match k.code {
-                KeyCode::Char(c)
-                    if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
-                        && !self.processing_request =>
-                {
-                    self.range_input.push(c);
-                }
-                KeyCode::Char(c)
-                    if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input))
-                        && !self.processing_request =>
-                {
-                    self.input.push(c);
-                }
-                KeyCode::Tab
-                    if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
-                        && !self.processing_request =>
-                {
-                    self.screen = Screen::InGame(GameScreen::Game(GameItem::Input));
-                }
-                KeyCode::Tab
-                    if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input))
-                        && !self.processing_request =>
-                {
-                    self.screen = Screen::InGame(GameScreen::Game(GameItem::Range));
-                }
-                KeyCode::Backspace
-                    if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
-                        && !self.processing_request =>
-                {
-                    self.range_input.pop();
-                }
-                KeyCode::Backspace
-                    if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input))
-                        && !self.processing_request =>
-                {
-                    self.input.pop();
-                }
-                KeyCode::Enter
-                    if (self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
-                        || self.screen == Screen::InGame(GameScreen::Game(GameItem::Input)))
-                        && !self.processing_request =>
-                {
-                    if self.validate_input() {
-                        self.processing_request = true;
-                    } else {
-                        self.extra_line_help = true;
-                    }
-                }
-                KeyCode::Char('q') => self.exit = true,
-                KeyCode::Char('j') => match &self.screen {
-                    Screen::MainMenu(MainMenuItem::Play) => {
-                        self.screen = Screen::MainMenu(MainMenuItem::Options);
-                    }
-                    Screen::MainMenu(MainMenuItem::Options) => {
-                        self.screen = Screen::MainMenu(MainMenuItem::Exit);
-                    }
-                    Screen::OptionsMenu(OptionsMenuItem::Model) => {
-                        self.screen = Screen::OptionsMenu(OptionsMenuItem::Return);
-                    }
-                    Screen::ModelMenu => {
-                        for (idx, model) in self.models.iter().enumerate() {
-                            if *model == self.model_view_selected
-                                && model != self.models.last().unwrap()
-                            {
-                                self.model_view_selected =
-                                    self.models.get(idx + 1).unwrap().to_owned();
-                                break;
-                            }
-                        }
-
-                        if self.model_view_selected == self.models_view.last().unwrap().to_string()
-                            && self.model_view_selected != *self.models.last().unwrap()
-                        {
-                            self.model_view_offset += 1;
-                        }
-                    }
-                    Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat)) => {
-                        self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit));
-                    }
-                    _ => {}
-                },
-                KeyCode::Char('k') => match &self.screen {
-                    Screen::MainMenu(MainMenuItem::Exit) => {
-                        self.screen = Screen::MainMenu(MainMenuItem::Options);
-                    }
-                    Screen::MainMenu(MainMenuItem::Options) => {
-                        self.screen = Screen::MainMenu(MainMenuItem::Play);
-                    }
-                    Screen::OptionsMenu(OptionsMenuItem::Return) => {
-                        self.screen = Screen::OptionsMenu(OptionsMenuItem::Model)
-                    }
-                    Screen::ModelMenu => {
-                        for (idx, model) in self.models.iter().enumerate() {
-                            if *model == self.model_view_selected
-                                && model != self.models.first().unwrap()
-                            {
-                                self.model_view_selected =
-                                    self.models.get(idx - 1).unwrap().to_owned();
-                                break;
-                            }
-                        }
-
-                        if self.model_view_selected == self.models_view.first().unwrap().to_string()
-                            && self.model_view_selected != *self.models.first().unwrap()
-                        {
-                            self.model_view_offset -= 1;
-                        }
-                    }
-                    Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit)) => {
-                        self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat));
-                    }
-                    _ => {}
-                },
-                KeyCode::Char('l') => match &self.screen {
-                    Screen::MainMenu(MainMenuItem::Play) => {
-                        self.screen = Screen::InGame(GameScreen::Game(GameItem::Range))
-                    }
-                    Screen::MainMenu(MainMenuItem::Options) => {
-                        self.screen = Screen::OptionsMenu(OptionsMenuItem::Model)
-                    }
-                    Screen::MainMenu(MainMenuItem::Exit) => self.exit = true,
-                    Screen::OptionsMenu(OptionsMenuItem::Model) => {
-                        self.screen = Screen::ModelMenu;
-
-                        self.model_view_offset = 0;
-                        self.fetch_models();
-                        self.model_view_selected = self.models.first().unwrap().to_owned();
-                    }
-                    Screen::OptionsMenu(OptionsMenuItem::Return) => {
-                        self.screen = Screen::MainMenu(MainMenuItem::Play);
-                    }
-                    Screen::ModelMenu => {
-                        self.model = self.model_view_selected.clone();
-                    }
-                    Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat)) => {
-                        self.screen = Screen::InGame(GameScreen::Game(GameItem::Range));
-                    }
-                    Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit)) => {
-                        self.exit = true;
-                    }
-                    _ => {}
-                },
-                KeyCode::Char('h') => {
-                    if let Screen::ModelMenu = &self.screen {
-                        self.screen = Screen::OptionsMenu(OptionsMenuItem::Model);
-                    }
-                }
-                _ => {}
-            }
-        }
-
         if self.processing_request {
             self.process_random();
             self.process_request()?;
             self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat));
             self.processing_request = false;
         }
+
+        if poll(Duration::from_millis(100)).is_ok_and(|v| v) {
+            if let Event::Key(k) = read()? {
+                match k.code {
+                    KeyCode::Char(c)
+                        if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
+                            && !self.processing_request =>
+                    {
+                        self.range_input.push(c);
+                    }
+                    KeyCode::Char(c)
+                        if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input))
+                            && !self.processing_request =>
+                    {
+                        self.input.push(c);
+                    }
+                    KeyCode::Tab
+                        if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
+                            && !self.processing_request =>
+                    {
+                        self.screen = Screen::InGame(GameScreen::Game(GameItem::Input));
+                    }
+                    KeyCode::Tab
+                        if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input))
+                            && !self.processing_request =>
+                    {
+                        self.screen = Screen::InGame(GameScreen::Game(GameItem::Range));
+                    }
+                    KeyCode::Backspace
+                        if self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
+                            && !self.processing_request =>
+                    {
+                        self.range_input.pop();
+                    }
+                    KeyCode::Backspace
+                        if self.screen == Screen::InGame(GameScreen::Game(GameItem::Input))
+                            && !self.processing_request =>
+                    {
+                        self.input.pop();
+                    }
+                    KeyCode::Enter
+                        if (self.screen == Screen::InGame(GameScreen::Game(GameItem::Range))
+                            || self.screen
+                                == Screen::InGame(GameScreen::Game(GameItem::Input)))
+                            && !self.processing_request =>
+                    {
+                        if self.validate_input() {
+                            self.processing_request = true;
+                        } else {
+                            self.extra_line_help = true;
+                        }
+                    }
+                    KeyCode::Char('q') => self.exit = true,
+                    KeyCode::Char('j') => match &self.screen {
+                        Screen::MainMenu(MainMenuItem::Play) => {
+                            self.screen = Screen::MainMenu(MainMenuItem::Options);
+                        }
+                        Screen::MainMenu(MainMenuItem::Options) => {
+                            self.screen = Screen::MainMenu(MainMenuItem::Exit);
+                        }
+                        Screen::OptionsMenu(OptionsMenuItem::Model) => {
+                            self.screen = Screen::OptionsMenu(OptionsMenuItem::Return);
+                        }
+                        Screen::ModelMenu => {
+                            for (idx, model) in self.models.iter().enumerate() {
+                                if *model == self.model_view_selected
+                                    && model != self.models.last().unwrap()
+                                {
+                                    self.model_view_selected =
+                                        self.models.get(idx + 1).unwrap().to_owned();
+                                    break;
+                                }
+                            }
+
+                            if self.model_view_selected
+                                == self.models_view.last().unwrap().to_string()
+                                && self.model_view_selected != *self.models.last().unwrap()
+                            {
+                                self.model_view_offset += 1;
+                            }
+                        }
+                        Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat)) => {
+                            self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit));
+                        }
+                        _ => {}
+                    },
+                    KeyCode::Char('k') => match &self.screen {
+                        Screen::MainMenu(MainMenuItem::Exit) => {
+                            self.screen = Screen::MainMenu(MainMenuItem::Options);
+                        }
+                        Screen::MainMenu(MainMenuItem::Options) => {
+                            self.screen = Screen::MainMenu(MainMenuItem::Play);
+                        }
+                        Screen::OptionsMenu(OptionsMenuItem::Return) => {
+                            self.screen = Screen::OptionsMenu(OptionsMenuItem::Model)
+                        }
+                        Screen::ModelMenu => {
+                            for (idx, model) in self.models.iter().enumerate() {
+                                if *model == self.model_view_selected
+                                    && model != self.models.first().unwrap()
+                                {
+                                    self.model_view_selected =
+                                        self.models.get(idx - 1).unwrap().to_owned();
+                                    break;
+                                }
+                            }
+
+                            if self.model_view_selected
+                                == self.models_view.first().unwrap().to_string()
+                                && self.model_view_selected != *self.models.first().unwrap()
+                            {
+                                self.model_view_offset -= 1;
+                            }
+                        }
+                        Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit)) => {
+                            self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat));
+                        }
+                        _ => {}
+                    },
+                    KeyCode::Char('l') => match &self.screen {
+                        Screen::MainMenu(MainMenuItem::Play) => {
+                            self.screen = Screen::InGame(GameScreen::Game(GameItem::Range))
+                        }
+                        Screen::MainMenu(MainMenuItem::Options) => {
+                            self.screen = Screen::OptionsMenu(OptionsMenuItem::Model)
+                        }
+                        Screen::MainMenu(MainMenuItem::Exit) => self.exit = true,
+                        Screen::OptionsMenu(OptionsMenuItem::Model) => {
+                            self.screen = Screen::ModelMenu;
+
+                            self.model_view_offset = 0;
+                            self.fetch_models();
+                            self.model_view_selected = self.models.first().unwrap().to_owned();
+                        }
+                        Screen::OptionsMenu(OptionsMenuItem::Return) => {
+                            self.screen = Screen::MainMenu(MainMenuItem::Play);
+                        }
+                        Screen::ModelMenu => {
+                            self.model = self.model_view_selected.clone();
+                        }
+                        Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat)) => {
+                            self.screen = Screen::InGame(GameScreen::Game(GameItem::Range));
+                        }
+                        Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit)) => {
+                            self.exit = true;
+                        }
+                        _ => {}
+                    },
+                    KeyCode::Char('h') => {
+                        if let Screen::ModelMenu = &self.screen {
+                            self.screen = Screen::OptionsMenu(OptionsMenuItem::Model);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -827,7 +832,7 @@ impl App<'_> {
             .title_bottom("(j) down / (k) up / (l) select")
             .title_alignment(Alignment::Center)
             .style(Color::Green)
-            .borders(Borders::TOP);
+            .borders(Borders::TOP | Borders::BOTTOM);
 
         let result_space = result_block.inner(layout[0]);
         let prompt_space = prompt_block.inner(layout[1]);
@@ -842,15 +847,17 @@ impl App<'_> {
             Layout::vertical([Constraint::Max(1), Constraint::Max(1)]).split(prompt_space);
         match screen {
             EndMenuItem::Repeat => {
-                let yes = Line::styled("Yes", Style::default().bg(Color::Green).fg(Color::White));
-                let no = Line::styled("No", Color::Green);
+                let yes = Line::styled("Yes", Style::default().bg(Color::Green).fg(Color::White))
+                    .centered();
+                let no = Line::styled("No", Color::Green).centered();
 
                 yes.render(prompt_layout[0], buf);
                 no.render(prompt_layout[1], buf);
             }
             EndMenuItem::Exit => {
-                let yes = Line::styled("Yes", Color::Green);
-                let no = Line::styled("No", Style::default().bg(Color::Green).fg(Color::White));
+                let yes = Line::styled("Yes", Color::Green).centered();
+                let no = Line::styled("No", Style::default().bg(Color::Green).fg(Color::White))
+                    .centered();
 
                 yes.render(prompt_layout[0], buf);
                 no.render(prompt_layout[1], buf);
