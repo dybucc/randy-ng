@@ -219,7 +219,7 @@ impl App<'_> {
         self.selectors_view_mut().clear();
         let ref_self = RefCell::new(&mut *self);
         for model in self
-            .models
+            .models()
             .iter()
             .skip(*ref_self.borrow().model_view_offset() as usize)
         {
