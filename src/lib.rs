@@ -14,3 +14,4 @@ mod ui;
 mod utils;
 
 pub use app::App;
+pub use utils::Cli;

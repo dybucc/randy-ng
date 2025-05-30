@@ -1,16 +1,24 @@
 //! This module contains support for the UI rendering in the program. It includes each of the main
 //! screenful state renderings that compute and display on-screen the corresponding layout.
 
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 use ratatui::{
     layout::Flex,
-    prelude::{Buffer, Constraint, Rect},
-    widgets::{Block, BorderType, Widget},
+    prelude::{Alignment, Buffer, Constraint, Layout, Rect},
+    style::{Color, Modifier, Style},
+    symbols::{bar::FULL, DOT},
+    text::{Line, Text},
+    widgets::{Block, BorderType, Borders, Widget},
 };
 
-use crate::utils::{GameScreen, MenuType, Screen};
-use crate::App;
+use crate::{
+    utils::{
+        EndMenuItem, GameItem, GameScreen, MainMenuItem, MenuType, OptionsMenuItem, RandomResult,
+        Screen,
+    },
+    App,
+};
 
 impl Widget for &mut App<'_> {
     fn render(self, area: Rect, buf: &mut Buffer)
@@ -186,7 +194,7 @@ impl App<'_> {
             .title_top("Model list")
             .title_bottom(Line::raw("(j) down / (k) up / (l) select / (h) return"))
             .title_alignment(Alignment::Center)
-            .style(Style::default().fg(Color::Green))
+            .style(Color::Green)
             .border_type(BorderType::Rounded);
         let list_space = model_list_block.inner(space);
         let list_space =
@@ -207,37 +215,56 @@ impl App<'_> {
         let content_style = Style::default().fg(Color::White);
         let active_content_style = content_style.bg(Color::Green);
 
-        self.models_view.clear();
-        self.selectors_view.clear();
-        for model in self.models.iter().skip(self.model_view_offset as usize) {
-            if *model == self.model_view_selected {
-                if *model == self.model {
-                    self.selectors_view
+        self.models_view_mut().clear();
+        self.selectors_view_mut().clear();
+        let ref_self = RefCell::new(&mut *self);
+        for model in self
+            .models
+            .iter()
+            .skip(*ref_self.borrow().model_view_offset() as usize)
+        {
+            if model == ref_self.borrow().model_view_selected() {
+                if model == ref_self.borrow().model() {
+                    ref_self
+                        .borrow_mut()
+                        .selectors_view_mut()
                         .push(Line::styled(DOT, active_content_style).alignment(Alignment::Center));
                 } else {
-                    self.selectors_view
+                    ref_self
+                        .borrow_mut()
+                        .selectors_view_mut()
                         .push(Line::styled(" ", active_content_style));
                 }
-                self.models_view
+                ref_self
+                    .borrow_mut()
+                    .models_view_mut()
                     .push(Line::styled(model.to_owned(), active_content_style));
             } else {
-                if *model == self.model {
-                    self.selectors_view
+                if model == ref_self.borrow().model() {
+                    ref_self
+                        .borrow_mut()
+                        .selectors_view_mut()
                         .push(Line::styled(DOT, content_style).alignment(Alignment::Center));
                 } else {
-                    self.selectors_view.push(Line::styled(" ", content_style));
+                    ref_self
+                        .borrow_mut()
+                        .selectors_view_mut()
+                        .push(Line::styled(" ", content_style));
                 }
-                self.models_view
+                ref_self
+                    .borrow_mut()
+                    .models_view_mut()
                     .push(Line::styled(model.to_owned(), content_style));
             }
         }
-        self.models_view.truncate(model_space.height as usize);
-        self.selectors_view.truncate(selector_space.height as usize);
+        self.models_view_mut().truncate(model_space.height as usize);
+        self.selectors_view_mut()
+            .truncate(selector_space.height as usize);
 
-        for (idx, model) in self.models_view.iter().enumerate() {
+        for (idx, model) in self.models_view_mut().iter().enumerate() {
             model.render(model_space_layout[idx], buf);
         }
-        for (idx, selector) in self.selectors_view.iter().enumerate() {
+        for (idx, selector) in self.selectors_view_mut().iter().enumerate() {
             selector.render(selector_space_layout[idx], buf);
         }
     }
@@ -268,7 +295,7 @@ impl App<'_> {
         ])
         .split(space)[1];
 
-        let layout = if self.extra_line_help || self.processing_request {
+        let layout = if *self.extra_line_help() || *self.processing_request() {
             Layout::vertical([Constraint::Max(3), Constraint::Max(3), Constraint::Max(1)])
                 .flex(Flex::Center)
                 .split(space)
@@ -281,15 +308,15 @@ impl App<'_> {
         let ranged_input_block = Block::bordered()
             .title_top("Input a range in the format n..m where n < m")
             .title_alignment(Alignment::Center)
-            .style(Style::default().fg(Color::Green))
+            .style(Color::Green)
             .border_type(BorderType::Rounded);
         let guess_input_block = Block::bordered()
             .title_top("Input a number in the above range")
             .title_bottom("(tab) switch between panels / (ret) continue")
             .title_alignment(Alignment::Center)
-            .style(Style::default().fg(Color::Green))
+            .style(Color::Green)
             .border_type(BorderType::Rounded);
-        if self.extra_line_help {
+        if *self.extra_line_help() {
             let help_line = Block::new()
                 .title_top("Incorrect input")
                 .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
@@ -297,11 +324,15 @@ impl App<'_> {
                 .borders(Borders::TOP);
 
             help_line.render(layout[2], buf);
-        } else if self.processing_request {
+        } else if *self.processing_request() {
             let processing_text = Block::new()
                 .title_top(format!(" {DOT} Processing {DOT} "))
                 .title_alignment(Alignment::Center)
-                .style(Style::default().fg(Color::White))
+                .style(
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                )
                 .borders(Borders::TOP);
 
             processing_text.render(layout[2], buf);
@@ -314,10 +345,9 @@ impl App<'_> {
         guess_input_block.render(layout[1], buf);
 
         let mut ranged_input =
-            Line::styled(self.range_input.clone(), Style::default().fg(Color::White))
-                .alignment(Alignment::Center);
-        let mut input = Line::styled(self.input.clone(), Style::default().fg(Color::White))
-            .alignment(Alignment::Center);
+            Line::styled(self.range_input().clone(), Color::White).alignment(Alignment::Center);
+        let mut input =
+            Line::styled(self.input().clone(), Color::White).alignment(Alignment::Center);
         match screen {
             GameItem::Range => {
                 ranged_input.push_span(FULL);
@@ -362,13 +392,13 @@ impl App<'_> {
 
         let result_block = Block::bordered()
             .title_top({
-                match self.result.expect("result not yet computed") {
+                match self.result().expect("result not yet computed") {
                     RandomResult::Correct => "Correct",
                     RandomResult::Incorrect => "Incorrect",
                 }
             })
             .title_alignment(Alignment::Center)
-            .style(Style::default().fg(Color::Green))
+            .style(Color::Green)
             .border_type(BorderType::Rounded);
         let prompt_block = Block::new()
             .title_top("Continue for another game?")
@@ -383,28 +413,29 @@ impl App<'_> {
         result_block.render(layout[0], buf);
         prompt_block.render(layout[1], buf);
 
-        let result_text = Text::styled(self.chat_completion_output.clone(), Color::Green);
+        let result_text = Text::styled(self.chat_completion_output().clone(), Color::Green);
         result_text.render(result_space, buf);
+
+        let content_style = Style::default().fg(Color::Green);
+        let active_content_style = Style::default().fg(Color::White).bg(Color::Green);
 
         let prompt_layout =
             Layout::vertical([Constraint::Max(1), Constraint::Max(1)]).split(prompt_space);
+
+        let yes;
+        let no;
         match screen {
             EndMenuItem::Repeat => {
-                let yes = Line::styled("Yes", Style::default().bg(Color::Green).fg(Color::White))
-                    .centered();
-                let no = Line::styled("No", Color::Green).centered();
-
-                yes.render(prompt_layout[0], buf);
-                no.render(prompt_layout[1], buf);
+                yes = Line::styled("Yes", active_content_style).centered();
+                no = Line::styled("No", content_style).centered();
             }
             EndMenuItem::Exit => {
-                let yes = Line::styled("Yes", Color::Green).centered();
-                let no = Line::styled("No", Style::default().bg(Color::Green).fg(Color::White))
-                    .centered();
-
-                yes.render(prompt_layout[0], buf);
-                no.render(prompt_layout[1], buf);
+                yes = Line::styled("Yes", content_style).centered();
+                no = Line::styled("No", active_content_style).centered();
             }
         }
+
+        yes.render(prompt_layout[0], buf);
+        no.render(prompt_layout[1], buf);
     }
 }

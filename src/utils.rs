@@ -151,7 +151,8 @@ impl Message {
         Self { role, content }
     }
 
-    pub(crate) fn content(&self) -> &String {
+    /// This function returns the currently stored value in the [`content`] field of the structure.
+    pub(crate) const fn content(&self) -> &String {
         &self.content
     }
 }
@@ -179,7 +180,8 @@ pub(crate) struct ChatCompletionResponse {
 }
 
 impl ChatCompletionResponse {
-    pub(crate) fn choices(&self) -> &Vec<Choices> {
+    /// This function returns the currently stored value in the [`choices`] field of the structure.
+    pub(crate) const fn choices(&self) -> &Vec<Choices> {
         &self.choices
     }
 }
@@ -193,7 +195,8 @@ pub(crate) struct Choices {
 }
 
 impl Choices {
-    pub(crate) fn message(&self) -> &Message {
+    /// This function returns the currently stored value in the [`message`] field of the structure.
+    pub(crate) const fn message(&self) -> &Message {
         &self.message
     }
 }
@@ -208,7 +211,8 @@ pub(crate) struct ModelListResponse {
 }
 
 impl ModelListResponse {
-    pub(crate) fn data(&self) -> &Vec<Data> {
+    /// This function returns the currently stored value for the [`data`] field of the structure.
+    pub(crate) const fn data(&self) -> &Vec<Data> {
         &self.data
     }
 }
@@ -223,7 +227,8 @@ pub(crate) struct Data {
 }
 
 impl Data {
-    pub(crate) fn id(&self) -> &String {
+    /// This function returns the currently stored value of the [`id`] field in the structure.
+    pub(crate) const fn id(&self) -> &String {
         &self.id
     }
 }
@@ -240,7 +245,7 @@ pub(crate) enum MenuType {
 
 impl MenuType {
     /// This function serves as a means of returning the string representation of the enumeration.
-    const fn repr(&self) -> &str {
+    pub(crate) const fn repr(&self) -> &str {
         match *self {
             Self::MainMenu(_) => "Main menu",
             Self::OptionsMenu(_) => "Options menu",
@@ -275,7 +280,7 @@ pub(crate) enum OperationType {
 /// clap.
 #[derive(Parser)]
 #[command(name = "randy-ng", version, about, long_about = None)]
-pub(crate) struct Cli {
+pub struct Cli {
     /// The OpenRouter model to use for the AI request.
     ///
     /// This should be set through the command-line, the environment variable or the in-game menu.
@@ -303,11 +308,13 @@ pub(crate) struct Cli {
 }
 
 impl Cli {
-    pub(crate) fn model(&self) -> Option<String> {
-        self.model.clone()
+    /// This function returns the currently stored value of the [`model`] field in the structure.
+    pub(crate) const fn model(&self) -> Option<&String> {
+        self.model.as_ref()
     }
 
-    pub(crate) fn api_key(&self) -> String {
-        self.api_key.clone()
+    /// This function returns the currently stored value of the [`api_key`] field in the structure.
+    pub(crate) const fn api_key(&self) -> &String {
+        &self.api_key
     }
 }

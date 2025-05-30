@@ -8,7 +8,7 @@ use color_eyre::Result;
 use fastrand::Rng;
 use ratatui::{
     crossterm::event::{poll, read, Event, KeyCode},
-    prelude::{Buffer, Rect, Widget},
+    prelude::{Buffer, Rect, Widget as _},
     text::Line,
     widgets::Clear,
     DefaultTerminal,
@@ -81,15 +81,83 @@ pub struct App<'line> {
     chat_completion_output: String,
 }
 
-impl App<'_> {
-    /// Retrieves the currently stored value for the [`screen`] field as an immutable reference.
-    pub(crate) fn screen(&self) -> &Screen {
+impl<'line> App<'line> {
+    /// This function returns the currently stored value for the [`screen`] field as an immutable
+    /// reference.
+    pub(crate) const fn screen(&self) -> &Screen {
         &self.screen
     }
 
-    /// Retrieves the currently stored value for the [`screen`] field as a mutable reference.
-    pub(crate) fn screen_mut(&mut self) -> &mut Screen {
-        &mut self.screen
+    /// This function returns the currently stored value for the [`models_view`] field as an
+    /// immutable reference.
+    pub(crate) fn models_view_mut(&mut self) -> &mut Vec<Line<'line>> {
+        &mut self.models_view
+    }
+
+    /// This function returns the currently stored value for the [`selectors_view`] field as an
+    /// immutable reference.
+    pub(crate) fn selectors_view_mut(&mut self) -> &mut Vec<Line<'line>> {
+        &mut self.selectors_view
+    }
+
+    /// This function returns the currently stored value for the [`models`] field as an immutable
+    /// reference.
+    pub(crate) const fn models(&self) -> &Vec<String> {
+        &self.models
+    }
+
+    /// This function returns the currently stored value for the [`model_view_offset`] field as an
+    /// immutable reference.
+    pub(crate) const fn model_view_offset(&self) -> &u16 {
+        &self.model_view_offset
+    }
+
+    /// This function returns the currently stored value for the [`model_view_selected`] field as an
+    /// immutable reference.
+    pub(crate) const fn model_view_selected(&self) -> &String {
+        &self.model_view_selected
+    }
+
+    /// This function returns the currently stored value for the [`model`] field as an immutable
+    /// reference.
+    pub(crate) const fn model(&self) -> &String {
+        &self.model
+    }
+
+    /// This function returns the currently stored value for the [`model`] field as an immutable
+    /// reference.
+    pub(crate) const fn extra_line_help(&self) -> &bool {
+        &self.extra_line_help
+    }
+
+    /// This function returns the currently stored value for the [`model`] field as an immutable
+    /// reference.
+    pub(crate) const fn processing_request(&self) -> &bool {
+        &self.processing_request
+    }
+
+    /// This function returns the currently stored value for the [`model`] field as an immutable
+    /// reference.
+    pub(crate) const fn range_input(&self) -> &String {
+        &self.range_input
+    }
+
+    /// This function returns the currently stored value for the [`model`] field as an immutable
+    /// reference.
+    pub(crate) const fn input(&self) -> &String {
+        &self.input
+    }
+
+    /// This function returns the currently stored value for the [`model`] field as an immutable
+    /// reference.
+    pub(crate) const fn result(&self) -> Option<&RandomResult> {
+        self.result.as_ref()
+    }
+
+    /// This function returns the currently stored value for the [`model`] field as an immutable
+    /// reference.
+    pub(crate) const fn chat_completion_output(&self) -> &String {
+        &self.chat_completion_output
     }
 
     /// This function serves as a way of fetching the models currently available for use through the
@@ -200,7 +268,12 @@ impl App<'_> {
 
     /// This function serves as a means of running the application by making use of TUI callbacks
     /// and a event handling functionality.
-    fn run(&mut self, mut term: DefaultTerminal) -> Result<()> {
+    ///
+    /// # Errors
+    ///
+    /// - [`std::io::Error`]
+    /// - [`ureq::Error`]
+    pub fn run(&mut self, mut term: DefaultTerminal) -> Result<()> {
         while !self.exit {
             let _ = term.draw(|frame| frame.render_widget(&mut *self, frame.area()))?;
             self.handle_events()?;
@@ -482,7 +555,7 @@ impl App<'_> {
 
     /// This function is a shorthand way of clearing a given area in the given buffer by rendering a
     /// special widget on that area.
-    fn clear(area: Rect, buf: &mut Buffer) {
+    pub(crate) fn clear(area: Rect, buf: &mut Buffer) {
         let clear = Clear;
         clear.render(area, buf);
     }
@@ -501,13 +574,14 @@ impl Default for App<'_> {
             input: String::new(),
             model: cli
                 .model()
+                .cloned()
                 .unwrap_or_else(|| "qwen/qwen3-32b:free".to_owned()),
             models: Vec::new(),
             models_view: Vec::new(),
             selectors_view: Vec::new(),
             model_view_selected: String::new(),
             model_view_offset: 0,
-            api_key: cli.api_key(),
+            api_key: cli.api_key().clone(),
             ranged_re: Regex::new(r"\A\d+\.\.\d+\z").expect("bad regex syntax"),
             input_re: Regex::new(r"\A\d+\z").expect("bad regex syntax"),
             extra_line_help: false,
