@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use clap::Parser as _;
-use color_eyre::Result;
+use color_eyre::{eyre::eyre, Result};
 use fastrand::Rng;
 use ratatui::{
     crossterm::event::{poll, read, Event, KeyCode},
@@ -17,9 +17,8 @@ use regex::Regex;
 use ureq::agent;
 
 use crate::utils::{
-    ChatCompletionResponse, Cli, EndMenuItem, GameItem, GameScreen, MainMenuItem,
-    ModelListResponse, ModelMenuDirection, OperationType, OptionsMenuItem, RandomResult, Request,
-    Screen,
+    self, ChatCompletionResponse, Cli, EndMenuItem, GameItem, GameScreen, MainMenuItem,
+    ModelMenuDirection, OperationType, OptionsMenuItem, RandomResult, Request, Screen,
 };
 
 /// This structure holds information about the application itself, keeping inside it both state and
@@ -82,22 +81,6 @@ pub struct App<'line> {
 }
 
 impl App<'_> {
-    /// This function serves as a way of fetching the models currently available for use through the
-    /// OpenRouter API. Note it does not require any type of authentication so the API key is not
-    /// used.
-    fn fetch_models(&mut self) {
-        let response: ModelListResponse = ureq::get("https://openrouter.ai/api/v1/models")
-            .call()
-            .expect("models request failed")
-            .into_body()
-            .read_json()
-            .expect("json failed to parse");
-
-        for model in response.data() {
-            self.models.push(model.id().to_string());
-        }
-    }
-
     /// This function serves as a means of validating user input for the range and guess.
     fn validate_input(&self) -> bool {
         if self.ranged_re.is_match(&self.range_input) && self.input_re.is_match(&self.input) {
@@ -335,7 +318,7 @@ impl App<'_> {
 
     /// This function holds the event handling behavior corresponding to the 'l' character press
     /// event.
-    fn handle_l_input(&mut self) {
+    fn handle_l_input(&mut self) -> Result<()> {
         match &self.screen {
             Screen::MainMenu(MainMenuItem::Play) => {
                 self.screen = Screen::InGame(GameScreen::Game(GameItem::Range));
@@ -348,11 +331,11 @@ impl App<'_> {
                 self.screen = Screen::ModelMenu;
 
                 self.model_view_offset = 0;
-                self.fetch_models();
+                self.models = utils::fetch_models()?;
                 self.model_view_selected = self
                     .models
                     .first()
-                    .expect("empty vector while assigning selected model")
+                    .ok_or_else(|| eyre!("no models fetched"))?
                     .to_owned();
             }
             Screen::OptionsMenu(OptionsMenuItem::Return) => {
@@ -369,6 +352,8 @@ impl App<'_> {
             }
             _ => {}
         }
+
+        Ok(())
     }
 
     /// This function holds the event handling behavior corresponding to the 'k' character press
@@ -465,7 +450,7 @@ impl App<'_> {
                     KeyCode::Char('q') => self.exit = true,
                     KeyCode::Char('j') => self.handle_j_input(),
                     KeyCode::Char('k') => self.handle_k_input(),
-                    KeyCode::Char('l') => self.handle_l_input(),
+                    KeyCode::Char('l') => self.handle_l_input()?,
                     KeyCode::Char('h') => self.handle_h_input(),
                     _ => {}
                 }

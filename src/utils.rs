@@ -1,12 +1,15 @@
 //! This module contains every structure and enumeration in the program, as well as their
 //! corresponding implementations, if any, that are not part of the core functioning of the former.
-//! These include any but the [`crate::App`] structure.
+//! These include all but the [`crate::App`] structure. There is also a function used to validate
+//! the model input from the user in the command line that is included in this file and only used
+//! here as well. This function uses another auxiliary function to actually fetch the models that is
+//! used in other parts of the program.
 
 use std::sync::LazyLock;
 
 use clap::Parser;
-use serde::Deserialize;
-use serde::Serialize;
+use color_eyre::{eyre::eyre, Result};
+use serde::{Deserialize, Serialize};
 
 /// This static constant contains the message to issue to the language model as part of the system
 /// prompt in the chat completion request to the OpenRouter API.
@@ -210,13 +213,6 @@ pub(crate) struct ModelListResponse {
     data: Vec<Data>,
 }
 
-impl ModelListResponse {
-    /// This function returns the currently stored value for the [`data`] field of the structure.
-    pub(crate) const fn data(&self) -> &Vec<Data> {
-        &self.data
-    }
-}
-
 /// This structure holds information about each specific model available through the OpenRouter API
 /// to be received as a response to the model list request.
 #[derive(Deserialize)]
@@ -224,13 +220,6 @@ pub(crate) struct Data {
     /// This field refers to the single element from the model list that this project is intered in;
     /// the codename the model receives.
     id: String,
-}
-
-impl Data {
-    /// This function returns the currently stored value of the [`id`] field in the structure.
-    pub(crate) const fn id(&self) -> &String {
-        &self.id
-    }
 }
 
 /// This enumeration holds information about the type of menu that can be rendered in a similar
@@ -279,7 +268,7 @@ pub(crate) enum OperationType {
 /// This structure holds information useful to the command-line argument parser in use; namely,
 /// clap.
 #[derive(Parser)]
-#[command(name = "randy-ng", version, about, long_about = None)]
+#[command(name = "randy-ng", version, about, long_about = None, next_line_help = true)]
 pub struct Cli {
     /// The OpenRouter model to use for the AI request.
     ///
@@ -291,7 +280,8 @@ pub struct Cli {
         long,
         env = "OPENROUTER_MODEL",
         value_name = "MODEL_NAME",
-        requires = "api_key"
+        requires = "api_key",
+        value_parser = verify_models
     )]
     model: Option<String>,
     /// The OpenRouter API key to use for the AI request.
@@ -316,5 +306,43 @@ impl Cli {
     /// This function returns the currently stored value of the [`api_key`] field in the structure.
     pub(crate) const fn api_key(&self) -> &String {
         &self.api_key
+    }
+}
+
+/// This function serves as a way of fetching the models currently available for use through the
+/// OpenRouter API. Note it does not require any type of authentication so the API key is not used.
+pub(crate) fn fetch_models() -> Result<Vec<String>> {
+    let response: ModelListResponse = ureq::get("https://openrouter.ai/api/v1/models")
+        .call()?
+        .into_body()
+        .read_json()?;
+    let mut output: Vec<String> = vec![];
+
+    for model in response.data {
+        output.push(model.id);
+    }
+
+    Ok(output)
+}
+
+/// This function serves as a value parser for the `model` field in the `Cli` structure. It is used
+/// by `clap` to check if the model input by the user is correct. To that extent, it fetches the
+/// list of models available for use through the OpenRouter API and checks that the input model is,
+/// indeed, one of these.
+fn verify_models(model: &str) -> Result<String> {
+    let list = fetch_models()?;
+    let mut output = String::new();
+
+    for elem in list {
+        if elem == model {
+            model.clone_into(&mut output);
+            break;
+        }
+    }
+
+    if output.is_empty() {
+        Err(eyre!("invalid model"))
+    } else {
+        Ok(output)
     }
 }

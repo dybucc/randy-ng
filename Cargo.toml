@@ -2,6 +2,7 @@
 name = "randy-ng"
 version = "0.1.0"
 edition = "2021"
+description = "A new-gen randy; a game to guess numbers and get answered by a cowboy."
 
 [lints.rust]
 absolute_paths_not_starting_with_crate = "deny"

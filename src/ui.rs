@@ -205,8 +205,8 @@ impl App<'_> {
         // anything nor should it have an early return because drawing on-screen must not be
         // fallible. One way to fix it would be to change the function that actually draws on-screen
         // and the contents of the closure it gets passed so that a different function from the
-        // default ratatui `render_widget` is run instead with a Result<> return type that cascades
-        // through whatever callbacks it performs. Raincheck.
+        // default ratatui `render_widget` is run instead with a `Result<>` return type that
+        // cascades through whatever callbacks it performs. Raincheck.
         let selector_space = list_space[0];
         let model_space = list_space[1];
 
