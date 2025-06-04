@@ -1,7 +1,7 @@
-//! This module contains support for the UI rendering in the program. It includes each of the main
-//! screenful state renderings that compute and display on-screen the corresponding layout.
+//! This module contains support for UI rendering. It includes each of the main screenful state
+//! renderings that compute and display on-screen the corresponding layout.
 
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 use ratatui::{
     layout::Flex,
@@ -25,7 +25,7 @@ impl Widget for &mut App<'_> {
     where
         Self: Sized,
     {
-        match &self.screen() {
+        match &self.screen {
             Screen::MainMenu(screen) => {
                 App::main_menu(area, buf, screen);
             }
@@ -200,6 +200,13 @@ impl App<'_> {
         let list_space =
             Layout::horizontal([Constraint::Percentage(5), Constraint::Percentage(95)])
                 .split(list_space);
+        // I would like to destructure the `list_space` slice with a pattern but that doesn't seem
+        // possible without using a `let ... else` statement, and this function must not return
+        // anything nor should it have an early return because drawing on-screen must not be
+        // fallible. One way to fix it would be to change the function that actually draws on-screen
+        // and the contents of the closure it gets passed so that a different function from the
+        // default ratatui `render_widget` is run instead with a Result<> return type that cascades
+        // through whatever callbacks it performs. Raincheck.
         let selector_space = list_space[0];
         let model_space = list_space[1];
 
@@ -215,56 +222,37 @@ impl App<'_> {
         let content_style = Style::default().fg(Color::White);
         let active_content_style = content_style.bg(Color::Green);
 
-        self.models_view_mut().clear();
-        self.selectors_view_mut().clear();
-        let ref_self = RefCell::new(&mut *self);
-        for model in self
-            .models()
-            .iter()
-            .skip(*ref_self.borrow().model_view_offset() as usize)
-        {
-            if model == ref_self.borrow().model_view_selected() {
-                if model == ref_self.borrow().model() {
-                    ref_self
-                        .borrow_mut()
-                        .selectors_view_mut()
+        self.models_view.clear();
+        self.selectors_view.clear();
+        for model in self.models.iter().skip(self.model_view_offset as usize) {
+            if *model == self.model_view_selected {
+                if *model == self.model {
+                    self.selectors_view
                         .push(Line::styled(DOT, active_content_style).alignment(Alignment::Center));
                 } else {
-                    ref_self
-                        .borrow_mut()
-                        .selectors_view_mut()
+                    self.selectors_view
                         .push(Line::styled(" ", active_content_style));
                 }
-                ref_self
-                    .borrow_mut()
-                    .models_view_mut()
+                self.models_view
                     .push(Line::styled(model.to_owned(), active_content_style));
             } else {
-                if model == ref_self.borrow().model() {
-                    ref_self
-                        .borrow_mut()
-                        .selectors_view_mut()
+                if *model == self.model {
+                    self.selectors_view
                         .push(Line::styled(DOT, content_style).alignment(Alignment::Center));
                 } else {
-                    ref_self
-                        .borrow_mut()
-                        .selectors_view_mut()
-                        .push(Line::styled(" ", content_style));
+                    self.selectors_view.push(Line::styled(" ", content_style));
                 }
-                ref_self
-                    .borrow_mut()
-                    .models_view_mut()
+                self.models_view
                     .push(Line::styled(model.to_owned(), content_style));
             }
         }
-        self.models_view_mut().truncate(model_space.height as usize);
-        self.selectors_view_mut()
-            .truncate(selector_space.height as usize);
+        self.models_view.truncate(model_space.height as usize);
+        self.selectors_view.truncate(selector_space.height as usize);
 
-        for (idx, model) in self.models_view_mut().iter().enumerate() {
+        for (idx, model) in self.models_view.iter().enumerate() {
             model.render(model_space_layout[idx], buf);
         }
-        for (idx, selector) in self.selectors_view_mut().iter().enumerate() {
+        for (idx, selector) in self.selectors_view.iter().enumerate() {
             selector.render(selector_space_layout[idx], buf);
         }
     }
@@ -295,7 +283,7 @@ impl App<'_> {
         ])
         .split(space)[1];
 
-        let layout = if *self.extra_line_help() || *self.processing_request() {
+        let layout = if self.extra_line_help || self.processing_request {
             Layout::vertical([Constraint::Max(3), Constraint::Max(3), Constraint::Max(1)])
                 .flex(Flex::Center)
                 .split(space)
@@ -316,7 +304,7 @@ impl App<'_> {
             .title_alignment(Alignment::Center)
             .style(Color::Green)
             .border_type(BorderType::Rounded);
-        if *self.extra_line_help() {
+        if self.extra_line_help {
             let help_line = Block::new()
                 .title_top("Incorrect input")
                 .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
@@ -324,7 +312,7 @@ impl App<'_> {
                 .borders(Borders::TOP);
 
             help_line.render(layout[2], buf);
-        } else if *self.processing_request() {
+        } else if self.processing_request {
             let processing_text = Block::new()
                 .title_top(format!(" {DOT} Processing {DOT} "))
                 .title_alignment(Alignment::Center)
@@ -345,9 +333,8 @@ impl App<'_> {
         guess_input_block.render(layout[1], buf);
 
         let mut ranged_input =
-            Line::styled(self.range_input().clone(), Color::White).alignment(Alignment::Center);
-        let mut input =
-            Line::styled(self.input().clone(), Color::White).alignment(Alignment::Center);
+            Line::styled(self.range_input.clone(), Color::White).alignment(Alignment::Center);
+        let mut input = Line::styled(self.input.clone(), Color::White).alignment(Alignment::Center);
         match screen {
             GameItem::Range => {
                 ranged_input.push_span(FULL);
@@ -392,7 +379,7 @@ impl App<'_> {
 
         let result_block = Block::bordered()
             .title_top({
-                match self.result().expect("result not yet computed") {
+                match self.result.expect("result not yet computed") {
                     RandomResult::Correct => "Correct",
                     RandomResult::Incorrect => "Incorrect",
                 }
@@ -413,7 +400,7 @@ impl App<'_> {
         result_block.render(layout[0], buf);
         prompt_block.render(layout[1], buf);
 
-        let result_text = Text::styled(self.chat_completion_output().clone(), Color::Green);
+        let result_text = Text::styled(self.chat_completion_output.clone(), Color::Green);
         result_text.render(result_space, buf);
 
         let content_style = Style::default().fg(Color::Green);

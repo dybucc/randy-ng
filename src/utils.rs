@@ -1,6 +1,6 @@
-//! This module contains every structure and union in the program, as well as their corresponding
-//! implementations, if any, that are not part of the core functioning of the former. These contain
-//! every structure and enumeration except for the [`App`] structure.
+//! This module contains every structure and enumeration in the program, as well as their
+//! corresponding implementations, if any, that are not part of the core functioning of the former.
+//! These include any but the [`crate::App`] structure.
 
 use std::sync::LazyLock;
 
@@ -118,14 +118,14 @@ impl Request {
             RandomResult::Correct => Self {
                 model,
                 messages: vec![
-                    Message::new(Role::System, LLM_INPUT.to_string()),
+                    Message::new(Role::System, LLM_INPUT.to_owned()),
                     Message::new(Role::User, "Correct".to_owned()),
                 ],
             },
             RandomResult::Incorrect => Self {
                 model,
                 messages: vec![
-                    Message::new(Role::System, LLM_INPUT.to_string()),
+                    Message::new(Role::System, LLM_INPUT.to_owned()),
                     Message::new(Role::User, "Incorrect".to_owned()),
                 ],
             },

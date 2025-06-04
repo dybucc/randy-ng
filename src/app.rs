@@ -26,140 +26,62 @@ use crate::utils::{
 /// functions relative to the drawing and updating of the state.
 pub struct App<'line> {
     /// This field refers to the condition of the game being run.
-    exit: bool,
+    pub(crate) exit: bool,
     /// This field refers to the current screen in which the user finds himself, generally as a
     /// consequence of a prior keypress.
-    screen: Screen,
+    pub(crate) screen: Screen,
     /// This field refers to the score accumulated by the user when playing multiple games in a row.
-    score: u8,
+    pub(crate) score: u8,
     /// This field refers to the ranged input taken from the user during the in-game experience.
-    range_input: String,
+    pub(crate) range_input: String,
     /// This field refers to the regular guess input taken from the user during the in-game
     /// experience.
-    input: String,
+    pub(crate) input: String,
     /// This field refers to the result of having computed the guess of the user within the given
     /// range and thus having determined whether they are right or wrong. This may not be
     /// initialized until a game is actually played, so it's wrapped in an `Option`.
-    result: Option<RandomResult>,
+    pub(crate) result: Option<RandomResult>,
     /// This field refers to the model selected by the user to process the request to the make to
     /// the OpenRouter API for chat completion.
-    model: String,
+    pub(crate) model: String,
     /// This field refers to the complete set of models retrieved from the OpenRouter API which are
     /// available for use in the menu.
-    models: Vec<String>,
+    pub(crate) models: Vec<String>,
     /// This field refers to the set of models that are currently in display within the viewport of
     /// the TUI. This is part of the persistent state required for the scrolling feature.
-    models_view: Vec<Line<'line>>,
+    pub(crate) models_view: Vec<Line<'line>>,
     /// This field refers to the set of selectors / spaces to display which model is currently
     /// selected to be used. This is part of the persistent state required for the scrolling
     /// feature.
-    selectors_view: Vec<Line<'line>>,
+    pub(crate) selectors_view: Vec<Line<'line>>,
     /// This field refers to the currently selected model in the viewport. This is part of the
     /// persistent state required for the scrolling feature.
-    model_view_selected: String,
+    pub(crate) model_view_selected: String,
     /// This field refers to the offset by which the first element of the viewport is not seen
     /// anymore. This is core to the scrolling feature and is thus part of the persistent state.
-    model_view_offset: u16,
+    pub(crate) model_view_offset: u16,
     /// This field refers to the API key to be used when performing the chat completion request to
     /// the OpenRouter API.
-    api_key: String,
+    pub(crate) api_key: String,
     /// This field refers to the regular expression in use to validate the input of the user in the
     /// ranged numbers prompt.
-    ranged_re: Regex,
+    pub(crate) ranged_re: Regex,
     /// This field refers to the regular expression in use to validate the input of the user in the
     /// regular guess number prompt.
-    input_re: Regex,
+    pub(crate) input_re: Regex,
     /// This field refers to the flag that allows informing the user their input is invalid.
-    extra_line_help: bool,
+    pub(crate) extra_line_help: bool,
     /// This field refers to the flag that allows informing the user the request is being processed.
-    processing_request: bool,
+    pub(crate) processing_request: bool,
     /// This field refers to the RNG to be used when the user's input is processed and the result of
     /// their guess is computed.
-    rng: Rng,
+    pub(crate) rng: Rng,
     /// This field refers to the output of the chat completion request, holding only the message
     /// retrieved from the language model's response.
-    chat_completion_output: String,
+    pub(crate) chat_completion_output: String,
 }
 
-impl<'line> App<'line> {
-    /// This function returns the currently stored value for the [`screen`] field as an immutable
-    /// reference.
-    pub(crate) const fn screen(&self) -> &Screen {
-        &self.screen
-    }
-
-    /// This function returns the currently stored value for the [`models_view`] field as an
-    /// immutable reference.
-    pub(crate) fn models_view_mut(&mut self) -> &mut Vec<Line<'line>> {
-        &mut self.models_view
-    }
-
-    /// This function returns the currently stored value for the [`selectors_view`] field as an
-    /// immutable reference.
-    pub(crate) fn selectors_view_mut(&mut self) -> &mut Vec<Line<'line>> {
-        &mut self.selectors_view
-    }
-
-    /// This function returns the currently stored value for the [`models`] field as an immutable
-    /// reference.
-    pub(crate) const fn models(&self) -> &Vec<String> {
-        &self.models
-    }
-
-    /// This function returns the currently stored value for the [`model_view_offset`] field as an
-    /// immutable reference.
-    pub(crate) const fn model_view_offset(&self) -> &u16 {
-        &self.model_view_offset
-    }
-
-    /// This function returns the currently stored value for the [`model_view_selected`] field as an
-    /// immutable reference.
-    pub(crate) const fn model_view_selected(&self) -> &String {
-        &self.model_view_selected
-    }
-
-    /// This function returns the currently stored value for the [`model`] field as an immutable
-    /// reference.
-    pub(crate) const fn model(&self) -> &String {
-        &self.model
-    }
-
-    /// This function returns the currently stored value for the [`model`] field as an immutable
-    /// reference.
-    pub(crate) const fn extra_line_help(&self) -> &bool {
-        &self.extra_line_help
-    }
-
-    /// This function returns the currently stored value for the [`model`] field as an immutable
-    /// reference.
-    pub(crate) const fn processing_request(&self) -> &bool {
-        &self.processing_request
-    }
-
-    /// This function returns the currently stored value for the [`model`] field as an immutable
-    /// reference.
-    pub(crate) const fn range_input(&self) -> &String {
-        &self.range_input
-    }
-
-    /// This function returns the currently stored value for the [`model`] field as an immutable
-    /// reference.
-    pub(crate) const fn input(&self) -> &String {
-        &self.input
-    }
-
-    /// This function returns the currently stored value for the [`model`] field as an immutable
-    /// reference.
-    pub(crate) const fn result(&self) -> Option<&RandomResult> {
-        self.result.as_ref()
-    }
-
-    /// This function returns the currently stored value for the [`model`] field as an immutable
-    /// reference.
-    pub(crate) const fn chat_completion_output(&self) -> &String {
-        &self.chat_completion_output
-    }
-
+impl App<'_> {
     /// This function serves as a way of fetching the models currently available for use through the
     /// OpenRouter API. Note it does not require any type of authentication so the API key is not
     /// used.
