@@ -11,8 +11,8 @@ use clap::Parser;
 use color_eyre::{eyre::eyre, Result};
 use serde::{Deserialize, Serialize};
 
-/// This static constant contains the message to issue to the language model as part of the system
-/// prompt in the chat completion request to the OpenRouter API.
+/// This static contains the message to issue to the language model as part of the system prompt in
+/// the chat completion request to the OpenRouter API.
 pub(crate) static LLM_INPUT: LazyLock<&str> = LazyLock::new(|| {
     "You will answer only to \"Correct\" or \"Incorrect.\" These correspond to either a\
 notification that a user got a number right in a number guessing game or not, respectively. Your\
@@ -21,14 +21,16 @@ cowboy-like answer to the user. Make it a short text. Include just your answer a
 Don't include emoji or otherwise non-verbal content."
 });
 
-/// This enumeration holds information about the deterministic screen states in which the use may
-/// find himself while playing the game. It is mostly used for deciding what type of TUI should be
-/// rendered at each point in the game.
+/// This enumeration holds information about the deterministic screen states in which the user may
+/// find himself while playing the game. It is mostly used for deciding what type of interface
+/// should be rendered at each point in the game.
 #[derive(PartialEq)]
 pub(crate) enum Screen {
-    /// This variant refers to the main menu.
+    /// This variant refers to the main menu. Its states correspond with the selection of items in
+    /// the menu.
     MainMenu(MainMenuItem),
-    /// This variant refers to the options menu.
+    /// This variant refers to the options menu. Its states correspond with the selection of items
+    /// in the menu.
     OptionsMenu(OptionsMenuItem),
     /// This variant refers to the state of being in-game. It thus comes accompanied of other
     /// screenful states.
@@ -93,8 +95,8 @@ pub(crate) enum EndMenuItem {
     Exit,
 }
 
-/// This enumeration holds information about the possible result obtained by the user after guessing
-/// a ranodm number, and computing one from the their input range.
+/// This enumeration holds information about the possible results obtained by the user after
+/// guessing a random number, and computing one from the their input range.
 #[derive(Clone, Copy)]
 pub(crate) enum RandomResult {
     /// This variant represents the state of having guessed the number correctly.
@@ -140,10 +142,9 @@ impl Request {
 /// chat completion request body to the OpenRouter API.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Message {
-    /// This field refers to the role that the message is to be interpreted as coming from. LLM
-    /// lingo for whose voice is this.
+    /// This field refers to the role of the party issuing the message.
     role: Role,
-    /// This field refers to the actual content to be used for the message; the meat of it.
+    /// This field refers to the actual content to be used for the message.
     content: String,
 }
 
@@ -154,7 +155,8 @@ impl Message {
         Self { role, content }
     }
 
-    /// This function returns the currently stored value in the [`content`] field of the structure.
+    /// This function returns the currently stored value in the [`struct@Message::field@content`] field of the
+    /// structure.
     pub(crate) const fn content(&self) -> &String {
         &self.content
     }
@@ -183,7 +185,8 @@ pub(crate) struct ChatCompletionResponse {
 }
 
 impl ChatCompletionResponse {
-    /// This function returns the currently stored value in the [`choices`] field of the structure.
+    /// This function returns the currently stored value in the
+    /// [`struct@ChatCompletionResponse::field@choices`] field of the structure.
     pub(crate) const fn choices(&self) -> &Vec<Choices> {
         &self.choices
     }
@@ -198,7 +201,7 @@ pub(crate) struct Choices {
 }
 
 impl Choices {
-    /// This function returns the currently stored value in the [`message`] field of the structure.
+    /// This function returns the currently stored value in the [`struct@Choices::field@message`] field of the structure.
     pub(crate) const fn message(&self) -> &Message {
         &self.message
     }
@@ -266,7 +269,7 @@ pub(crate) enum OperationType {
 }
 
 /// This structure holds information useful to the command-line argument parser in use; namely,
-/// clap.
+/// [`clap`].
 #[derive(Parser)]
 #[command(name = "randy-ng", version, about, long_about = None, next_line_help = true)]
 pub struct Cli {
@@ -298,12 +301,12 @@ pub struct Cli {
 }
 
 impl Cli {
-    /// This function returns the currently stored value of the [`model`] field in the structure.
+    /// This function returns the currently stored value of the [`struct@Cli::field@model`] field in the structure.
     pub(crate) const fn model(&self) -> Option<&String> {
         self.model.as_ref()
     }
 
-    /// This function returns the currently stored value of the [`api_key`] field in the structure.
+    /// This function returns the currently stored value of the [`struct@Cli::field@api_key`] field in the structure.
     pub(crate) const fn api_key(&self) -> &String {
         &self.api_key
     }

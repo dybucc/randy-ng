@@ -195,6 +195,7 @@ impl App<'_> {
             self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat));
             self.processing_request = false;
         }
+
         Ok(())
     }
 
