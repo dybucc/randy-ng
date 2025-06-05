@@ -1,4 +1,8 @@
+<div align="center">
+
 # Randy-NG
+
+</div>
 
 A new-generation terminal-based number guessing game with AI-powered cowboy responses.
 
