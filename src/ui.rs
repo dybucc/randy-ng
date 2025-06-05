@@ -275,23 +275,41 @@ impl App<'_> {
             Constraint::Percentage(100),
             Constraint::Percentage(40),
         ])
-        .split(area)[1];
-        let space = Layout::horizontal([
+        .split(area);
+        let main_space = Layout::horizontal([
             Constraint::Percentage(40),
             Constraint::Percentage(100),
             Constraint::Percentage(40),
         ])
-        .split(space)[1];
+        .split(space[1])[1];
+        let score_space = Layout::horizontal([
+            Constraint::Percentage(40),
+            Constraint::Percentage(100),
+            Constraint::Percentage(40),
+        ])
+        .flex(Flex::End)
+        .split(space[2]);
+        let score_space = Layout::vertical([Constraint::Max(1)])
+            .flex(Flex::End)
+            .split(score_space[1])[0];
 
         let layout = if self.extra_line_help || self.processing_request {
             Layout::vertical([Constraint::Max(3), Constraint::Max(3), Constraint::Max(1)])
                 .flex(Flex::Center)
-                .split(space)
+                .split(main_space)
         } else {
             Layout::vertical([Constraint::Max(3), Constraint::Max(3)])
                 .flex(Flex::Center)
-                .split(space)
+                .split(main_space)
         };
+
+        let score_block = Block::new()
+            .title_top(format!("Score: {}", self.score))
+            .title_alignment(Alignment::Center)
+            .style(Color::Green)
+            .borders(Borders::TOP);
+
+        score_block.render(score_space, buf);
 
         let ranged_input_block = Block::bordered()
             .title_top("Input a range in the format n..m where n < m")
@@ -365,17 +383,34 @@ impl App<'_> {
             Constraint::Percentage(100),
             Constraint::Percentage(40),
         ])
-        .split(area)[1];
-        let space = Layout::horizontal([
+        .split(area);
+        let main_space = Layout::horizontal([
             Constraint::Percentage(40),
             Constraint::Percentage(100),
             Constraint::Percentage(40),
         ])
-        .split(space)[1];
+        .split(space[1])[1];
+        let score_space = Layout::horizontal([
+            Constraint::Percentage(40),
+            Constraint::Percentage(100),
+            Constraint::Percentage(40),
+        ])
+        .split(space[2]);
+        let score_space = Layout::vertical([Constraint::Max(1)])
+            .flex(Flex::End)
+            .split(score_space[1])[0];
 
         let layout = Layout::vertical([Constraint::Min(1), Constraint::Max(4)])
             .flex(Flex::Center)
-            .split(space);
+            .split(main_space);
+
+        let score_block = Block::new()
+            .title_top(format!("Score: {}", self.score))
+            .title_alignment(Alignment::Center)
+            .style(Color::Green)
+            .borders(Borders::TOP);
+
+        score_block.render(score_space, buf);
 
         let result_block = Block::bordered()
             .title_top({

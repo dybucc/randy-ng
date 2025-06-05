@@ -4,7 +4,10 @@
 use std::time::Duration;
 
 use clap::Parser as _;
-use color_eyre::{eyre::eyre, Result};
+use color_eyre::{
+    eyre::{eyre, OptionExt as _},
+    Result,
+};
 use fastrand::Rng;
 use ratatui::{
     crossterm::event::{poll, read, Event, KeyCode},
@@ -38,10 +41,10 @@ pub struct App<'line> {
     pub(crate) input: String,
     /// This field refers to the result of having computed the guess of the user within the given
     /// range and thus having determined whether they are right or wrong. This may not be
-    /// initialized until a game is actually played, so it's wrapped in an `Option`.
+    /// initialized until a game is actually played, so it's wrapped in an [`Option`].
     pub(crate) result: Option<RandomResult>,
-    /// This field refers to the model selected by the user to process the request to the make to
-    /// the OpenRouter API for chat completion.
+    /// This field refers to the model selected by the user to process the request to make to the
+    /// OpenRouter API for chat completion.
     pub(crate) model: String,
     /// This field refers to the complete set of models retrieved from the OpenRouter API which are
     /// available for use in the menu.
@@ -68,9 +71,9 @@ pub struct App<'line> {
     /// This field refers to the regular expression in use to validate the input of the user in the
     /// regular guess number prompt.
     pub(crate) input_re: Regex,
-    /// This field refers to the flag that allows informing the user their input is invalid.
+    /// This field refers to the flag that allows notifying the user their input is invalid.
     pub(crate) extra_line_help: bool,
-    /// This field refers to the flag that allows informing the user the request is being processed.
+    /// This field refers to the flag that allows notifying the user the request is being processed.
     pub(crate) processing_request: bool,
     /// This field refers to the RNG to be used when the user's input is processed and the result of
     /// their guess is computed.
@@ -82,65 +85,65 @@ pub struct App<'line> {
 
 impl App<'_> {
     /// This function serves as a means of validating user input for the range and guess.
-    fn validate_input(&self) -> bool {
+    fn validate_input(&self) -> Result<bool> {
         if self.ranged_re.is_match(&self.range_input) && self.input_re.is_match(&self.input) {
             // process the ranged input
             let (start, end) = self.range_input.split_at(
                 self.range_input
                     .find("..")
-                    .expect("validate_input parsing failed"),
+                    .ok_or_eyre("validate_input parsing failed")?,
             );
             let end: String = end.chars().rev().collect();
-            let (end, _) = end.split_at(end.find("..").expect("validate_input parsing failed"));
-            let start: usize = start.parse().expect("validate_input parsing failed");
-            let end: usize = end.parse().expect("validate_input parsing failed");
+            let (end, _) =
+                end.split_at(end.find("..").ok_or_eyre("validate_input parsing failed")?);
+            let start: usize = start.parse()?;
+            let end: usize = end.parse()?;
             let flag1 = start < end;
 
             // process the guess input
-            let guess: usize = self.input.parse().expect("validate_input parsing failed");
+            let guess: usize = self.input.parse()?;
             let flag2 = guess >= start && guess <= end;
 
-            return flag1 && flag2;
+            return Ok(flag1 && flag2);
         }
 
-        false
+        Ok(false)
     }
 
     /// This function processes a random number in the range given by the user and stores the result
     /// in the corresponding internal state of the application.
-    fn process_random(&mut self) {
+    fn process_random(&mut self) -> Result<()> {
         let (start, end) = self.range_input.split_at(
             self.range_input
                 .find("..")
-                .expect("process_random parsing failed"),
+                .ok_or_eyre("process_random parsing failed")?,
         );
         let end: String = end.chars().rev().collect();
-        let (end, _) = end.split_at(end.find("..").expect("process_random parsing failed"));
+        let (end, _) = end.split_at(end.find("..").ok_or_eyre("process_random parsing failed")?);
 
-        let start: usize = start.parse().expect("process_random parsing failed");
-        let end: usize = end.parse().expect("process_random parsing failed");
-        let guess: usize = self.input.parse().expect("process_random parsing failed");
+        let start: usize = start.parse()?;
+        let end: usize = end.parse()?;
+        let guess: usize = self.input.parse()?;
 
         let random = self.rng.usize(start..=end);
 
         if guess == random {
             self.result = Some(RandomResult::Correct);
+            self.score += 1;
         } else {
             self.result = Some(RandomResult::Incorrect);
         }
+
+        Ok(())
     }
 
     /// This function processes a chat completion request of the OpenRouter API, and retrieves the
     /// message returned by the language model if the request doesn't error out. The output is then
     /// stored in the application's persistent state.
-    #[expect(
-        clippy::unwrap_in_result,
-        reason = "The expects are used on Option<> values, which are not compatible with Result<> function return values"
-    )]
     fn process_request(&mut self) -> Result<()> {
         let request_body = Request::new(
             self.model.clone(),
-            self.result.expect("result not processed yet"),
+            self.result.ok_or_eyre("result not yet computed")?,
         );
         let agent = agent();
 
@@ -155,7 +158,7 @@ impl App<'_> {
                     let output = response
                         .choices()
                         .last()
-                        .expect("empty vector when processing request")
+                        .ok_or_eyre("no elements in the array")?
                         .message()
                         .content()
                         .clone();
@@ -190,7 +193,7 @@ impl App<'_> {
     /// processed.
     fn handle_request(&mut self) -> Result<()> {
         if self.processing_request {
-            self.process_random();
+            self.process_random()?;
             self.process_request()?;
             self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat));
             self.processing_request = false;
@@ -202,7 +205,7 @@ impl App<'_> {
     /// This function handles updates to the model menu viewport. It gets issued a command to update
     /// in either one of of the upward or downward directions, and makes the corresponding changes
     /// to the persistent state related to this part of the application.
-    fn handle_model_menu_updates(&mut self, direction: ModelMenuDirection) {
+    fn handle_model_menu_updates(&mut self, direction: ModelMenuDirection) -> Result<()> {
         match direction {
             ModelMenuDirection::Down => {
                 let mut first_model_after_view = String::new();
@@ -213,26 +216,26 @@ impl App<'_> {
                             != self
                                 .models
                                 .last()
-                                .expect("empty vector when browsing down models")
+                                .ok_or_eyre("empty vector when browsing down models")?
                     {
                         if self.model_view_selected
                             == self
                                 .models_view
                                 .last()
-                                .expect("empty vector when browsing down models")
+                                .ok_or_eyre("empty vector when browsing down models")?
                                 .to_string()
                         {
                             first_model_after_view.clone_from(
                                 self.models
                                     .get(idx + 1)
-                                    .expect("item not found when browsing down models"),
+                                    .ok_or_eyre("item not found when browsing down models")?,
                             );
                         }
 
                         self.model_view_selected.clone_from(
                             self.models
                                 .get(idx + 1)
-                                .expect("item not found when browsing down models"),
+                                .ok_or_eyre("item not found when browsing down models")?,
                         );
                         break;
                     }
@@ -253,26 +256,26 @@ impl App<'_> {
                             != self
                                 .models
                                 .first()
-                                .expect("empty vector when browsing up models")
+                                .ok_or_eyre("empty vector when browsing up models")?
                     {
                         if self.model_view_selected
                             == self
                                 .models_view
                                 .first()
-                                .expect("empty vect when browsing up models")
+                                .ok_or_eyre("empty vect when browsing up models")?
                                 .to_string()
                         {
                             first_model_before_view.clone_from(
                                 self.models
                                     .get(idx - 1)
-                                    .expect("item not found while browsing up models"),
+                                    .ok_or_eyre("item not found while browsing up models")?,
                             );
                         }
 
                         self.model_view_selected.clone_from(
                             self.models
                                 .get(idx - 1)
-                                .expect("item not found while browsing up models"),
+                                .ok_or_eyre("item not found while browsing up models")?,
                         );
                         break;
                     }
@@ -285,15 +288,18 @@ impl App<'_> {
                 }
             }
         }
+
+        Ok(())
     }
 
     /// This function serves as a textual input hanlder when the user is either inputting or
     /// deleting characters on the in-game input prompts.
-    fn handle_textual_input(&mut self, operation: OperationType, char: Option<char>) {
+    fn handle_textual_input(&mut self, operation: OperationType, char: Option<char>) -> Result<()> {
         match &self.screen {
             Screen::InGame(GameScreen::Game(GameItem::Range)) => match operation {
                 OperationType::Addition => {
-                    self.range_input.push(char.expect("no character to push"));
+                    self.range_input
+                        .push(char.ok_or_eyre("no character to push")?);
                 }
                 OperationType::Deletion => {
                     let _ = self.range_input.pop();
@@ -304,7 +310,7 @@ impl App<'_> {
             },
             Screen::InGame(GameScreen::Game(GameItem::Input)) => match operation {
                 OperationType::Addition => {
-                    self.input.push(char.expect("no character to push"));
+                    self.input.push(char.ok_or_eyre("no character to push")?);
                 }
                 OperationType::Deletion => {
                     let _ = self.input.pop();
@@ -315,6 +321,8 @@ impl App<'_> {
             },
             _ => {}
         }
+
+        Ok(())
     }
 
     /// This function holds the event handling behavior corresponding to the 'l' character press
@@ -359,7 +367,7 @@ impl App<'_> {
 
     /// This function holds the event handling behavior corresponding to the 'k' character press
     /// event.
-    fn handle_k_input(&mut self) {
+    fn handle_k_input(&mut self) -> Result<()> {
         match &self.screen {
             Screen::MainMenu(MainMenuItem::Exit) => {
                 self.screen = Screen::MainMenu(MainMenuItem::Options);
@@ -371,18 +379,20 @@ impl App<'_> {
                 self.screen = Screen::OptionsMenu(OptionsMenuItem::Model);
             }
             Screen::ModelMenu => {
-                self.handle_model_menu_updates(ModelMenuDirection::Up);
+                self.handle_model_menu_updates(ModelMenuDirection::Up)?;
             }
             Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit)) => {
                 self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat));
             }
             _ => {}
         }
+
+        Ok(())
     }
 
     /// This function holds the event handling behavior corresponding to the 'j' character press
     /// event.
-    fn handle_j_input(&mut self) {
+    fn handle_j_input(&mut self) -> Result<()> {
         match &self.screen {
             Screen::MainMenu(MainMenuItem::Play) => {
                 self.screen = Screen::MainMenu(MainMenuItem::Options);
@@ -394,13 +404,15 @@ impl App<'_> {
                 self.screen = Screen::OptionsMenu(OptionsMenuItem::Return);
             }
             Screen::ModelMenu => {
-                self.handle_model_menu_updates(ModelMenuDirection::Down);
+                self.handle_model_menu_updates(ModelMenuDirection::Down)?;
             }
             Screen::InGame(GameScreen::EndMenu(EndMenuItem::Repeat)) => {
                 self.screen = Screen::InGame(GameScreen::EndMenu(EndMenuItem::Exit));
             }
             _ => {}
         }
+
+        Ok(())
     }
 
     /// This function holds the event handling behavior corresponding to the 'h' character press
@@ -423,25 +435,25 @@ impl App<'_> {
                         if matches!(self.screen, Screen::InGame(GameScreen::Game(_)))
                             && !self.processing_request =>
                     {
-                        self.handle_textual_input(OperationType::Addition, Some(ch));
+                        self.handle_textual_input(OperationType::Addition, Some(ch))?;
                     }
                     KeyCode::Tab
                         if matches!(self.screen, Screen::InGame(GameScreen::Game(_)))
                             && !self.processing_request =>
                     {
-                        self.handle_textual_input(OperationType::SwitchFocus, None);
+                        self.handle_textual_input(OperationType::SwitchFocus, None)?;
                     }
                     KeyCode::Backspace
                         if matches!(self.screen, Screen::InGame(GameScreen::Game(_)))
                             && !self.processing_request =>
                     {
-                        self.handle_textual_input(OperationType::Deletion, None);
+                        self.handle_textual_input(OperationType::Deletion, None)?;
                     }
                     KeyCode::Enter
                         if matches!(self.screen, Screen::InGame(GameScreen::Game(_)))
                             && !self.processing_request =>
                     {
-                        if self.validate_input() {
+                        if self.validate_input()? {
                             self.extra_line_help = false;
                             self.processing_request = true;
                         } else {
@@ -449,8 +461,8 @@ impl App<'_> {
                         }
                     }
                     KeyCode::Char('q') => self.exit = true,
-                    KeyCode::Char('j') => self.handle_j_input(),
-                    KeyCode::Char('k') => self.handle_k_input(),
+                    KeyCode::Char('j') => self.handle_j_input()?,
+                    KeyCode::Char('k') => self.handle_k_input()?,
                     KeyCode::Char('l') => self.handle_l_input()?,
                     KeyCode::Char('h') => self.handle_h_input(),
                     _ => {}
