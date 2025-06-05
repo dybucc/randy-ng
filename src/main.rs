@@ -2,10 +2,6 @@
 //! actual TUI framework.
 
 #![expect(
-    clippy::cargo_common_metadata,
-    reason = "Temporary during development prior to crates.io publishing."
-)]
-#![expect(
     unused_crate_dependencies,
     reason = "The dependencies are used in the library crate of the same name."
 )]
