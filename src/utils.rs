@@ -155,8 +155,8 @@ impl Message {
         Self { role, content }
     }
 
-    /// This function returns the currently stored value in the [`struct@Message::field@content`] field of the
-    /// structure.
+    /// This function returns the currently stored value in the [`struct@Message::field@content`]
+    /// field of the structure.
     pub(crate) const fn content(&self) -> &String {
         &self.content
     }
@@ -201,7 +201,8 @@ pub(crate) struct Choices {
 }
 
 impl Choices {
-    /// This function returns the currently stored value in the [`struct@Choices::field@message`] field of the structure.
+    /// This function returns the currently stored value in the [`struct@Choices::field@message`]
+    /// field of the structure.
     pub(crate) const fn message(&self) -> &Message {
         &self.message
     }
@@ -226,7 +227,7 @@ pub(crate) struct Data {
 }
 
 /// This enumeration holds information about the type of menu that can be rendered in a similar
-/// fashion in the game. This is because the pub(crate) enum is used as a means of generalizing the behavior of
+/// fashion in the game. This is because the enum is used as a means of generalizing the behavior of
 /// the actual menus in a single, more compact manner, while keeping their individual differences.
 pub(crate) enum MenuType {
     /// This variant refers to the main menu in the game.
@@ -301,12 +302,14 @@ pub struct Cli {
 }
 
 impl Cli {
-    /// This function returns the currently stored value of the [`struct@Cli::field@model`] field in the structure.
+    /// This function returns the currently stored value of the [`struct@Cli::field@model`] field in
+    /// the structure.
     pub(crate) const fn model(&self) -> Option<&String> {
         self.model.as_ref()
     }
 
-    /// This function returns the currently stored value of the [`struct@Cli::field@api_key`] field in the structure.
+    /// This function returns the currently stored value of the [`struct@Cli::field@api_key`] field
+    /// in the structure.
     pub(crate) const fn api_key(&self) -> &String {
         &self.api_key
     }

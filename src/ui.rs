@@ -8,8 +8,8 @@ use ratatui::{
     prelude::{Alignment, Buffer, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     symbols::{bar::FULL, DOT},
-    text::{Line, Text},
-    widgets::{Block, BorderType, Borders, Widget},
+    text::Line,
+    widgets::{Block, BorderType, Borders, Paragraph, Widget, Wrap},
 };
 
 use crate::{
@@ -394,14 +394,15 @@ impl App<'_> {
             .style(Color::Green)
             .borders(Borders::TOP | Borders::BOTTOM);
 
-        let result_space = result_block.inner(layout[0]);
         let prompt_space = prompt_block.inner(layout[1]);
 
-        result_block.render(layout[0], buf);
         prompt_block.render(layout[1], buf);
 
-        let result_text = Text::styled(self.chat_completion_output.clone(), Color::Green);
-        result_text.render(result_space, buf);
+        let result_text = Paragraph::new(self.chat_completion_output.clone())
+            .style(Color::Green)
+            .block(result_block)
+            .wrap(Wrap { trim: true });
+        result_text.render(layout[0], buf);
 
         let content_style = Style::default().fg(Color::Green);
         let active_content_style = Style::default().fg(Color::White).bg(Color::Green);
