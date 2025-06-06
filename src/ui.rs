@@ -21,10 +21,7 @@ use crate::{
 };
 
 impl Widget for &mut App<'_> {
-    fn render(self, area: Rect, buf: &mut Buffer)
-    where
-        Self: Sized,
-    {
+    fn render(self, area: Rect, buf: &mut Buffer) {
         match &self.screen {
             Screen::MainMenu(screen) => {
                 App::main_menu(area, buf, screen);
@@ -400,9 +397,23 @@ impl App<'_> {
             .flex(Flex::End)
             .split(score_space[1])[0];
 
-        let layout = Layout::vertical([Constraint::Min(1), Constraint::Max(4)])
+        let layout = Layout::vertical([Constraint::Min(3), Constraint::Max(4)])
             .flex(Flex::Center)
             .split(main_space);
+
+        let len = Self::compute_wrapping_width(&self.chat_completion_output, layout[0].width - 2);
+
+        let layout = Layout::vertical([
+            Constraint::Length(
+                (len + 2)
+                    .clamp(3, layout[0].height as usize - 2)
+                    .try_into()
+                    .expect("conversion failed while creating main layout"),
+            ),
+            Constraint::Max(4),
+        ])
+        .flex(Flex::Center)
+        .split(main_space);
 
         let score_block = Block::new()
             .title_top(format!("Score: {}", self.score))
@@ -460,5 +471,38 @@ impl App<'_> {
 
         yes.render(prompt_layout[0], buf);
         no.render(prompt_layout[1], buf);
+    }
+
+    /// This function computes the amount of times a given string would be partitioned to wrap it
+    /// into a given width.
+    fn compute_wrapping_width(input_string: &str, max_width: u16) -> usize {
+        let mut line_delimiters = vec![0];
+        let mut skipper = 0;
+        'outer: loop {
+            let mut last_whitespace = 0;
+
+            for (char_counter, (idx, elem)) in input_string.char_indices().skip(skipper).enumerate()
+            {
+                if elem.is_whitespace() {
+                    last_whitespace = idx;
+                }
+
+                if char_counter == max_width as usize {
+                    line_delimiters.push(last_whitespace);
+                    if last_whitespace != 0 {
+                        skipper = last_whitespace + 1;
+                    } else {
+                        skipper = 0;
+                    }
+                    break;
+                }
+            }
+
+            if input_string.chars().skip(skipper).count() < max_width as usize {
+                break 'outer;
+            }
+        }
+
+        line_delimiters.len()
     }
 }
